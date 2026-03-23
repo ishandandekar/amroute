@@ -8,5 +8,5 @@ wheels/
 
 # Virtual environments
 .venv
-./wakeword/sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/
-./wakeword/sounds/
+wakeword/sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/
+wakeword/sounds/

@@ -1,0 +1,13 @@
+Links
++ https://arxiv.org/abs/2002.01322
++ https://colab.research.google.com/drive/1q1oe2zOyZp7UsB3jJiQ1IFn8z5YfjwEb?usp=sharing#scrollTo=1cbqBebHXjFD
++ https://www.kaggle.com/datasets/vishnu0399/emergency-vehicle-siren-sounds
++ https://www.kaggle.com/code/aryashah2k/emergency-vehicle-siren-sound-classification#%F0%9F%9A%A8-LSTM
+
+We can go in two routes
++ Create a normal frequency rule based flag
++ Create ML model
+
+
+I want to go in normal frequency rule based thing because it seems sciency.
+So, I've made the model now, I can try to predict over this model using the other dataset. If the input shape doesn't support then I'll have to retune the window length. I can add the frequency thing over this to be even more precise. Lets see
