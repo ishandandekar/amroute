@@ -12,7 +12,7 @@ wakeword/sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Appli
 wakeword/sounds/
 wakework/.ruff_cache
 wakeword/Extracted_Features.pkl
-wakeword/best_lstm.pt
+**/**.pt
 wakeword/sireNN.pt
 wakeword/uv.lock
 **/temp/**
