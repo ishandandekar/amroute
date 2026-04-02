@@ -15,3 +15,6 @@ wakeword/Extracted_Features.pkl
 wakeword/best_lstm.pt
 wakeword/sireNN.pt
 wakeword/uv.lock
+**/temp/**
+.envrc
+**.csv

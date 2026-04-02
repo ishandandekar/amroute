@@ -1,8 +1,14 @@
+from pathlib import Path
 from scipy.signal import butter, lfilter
 import torch
 import torch.nn as nn
 import librosa
 import numpy as np
+from rich.progress import track
+from rich.table import Table
+from rich import box
+from rich.console import Console
+import pandas as pd
 
 
 class SireNN(nn.Module):
@@ -92,9 +98,68 @@ def predict(model, audio_tensor, device=None):
     }
 
 
+def predict_over_directory(
+    directory_path: Path,
+    model_path: str,
+    results_filepath: str | None = "results.csv",
+    show_results: bool = True,
+):
+    assert directory_path.exists(), (
+        "Directory " + str(directory_path.absolute()) + " does not exists"
+    )
+    audio_filepaths = list(directory_path.glob("*.wav"))
+    assert len(audio_filepaths) > 1, "No audio files found in directory"
+
+    device = get_device()
+    print(f"Using device: {device}")
+
+    print(f"Loading model from {model_path}...")
+    model = load_model(model_path, device)
+    print("Model loaded and compiled successfully.\n")
+    results = []
+
+    if show_results:
+        table = Table(title="sireNN results", box=box.HEAVY_HEAD)
+
+        table.add_column("audio", justify="right")
+        table.add_column("prediction")
+        table.add_column(
+            "class_id",
+            justify="right",
+        )
+        table.add_column(
+            "confidence",
+            justify="right",
+        )
+
+    for audio_filepath in track(
+        audio_filepaths,
+        description="Predicting sireNN over directory",
+        total=len(audio_filepaths),
+    ):
+        audio_tensor = preprocess_audio(audio_filepath)
+
+        result: dict = predict(model, audio_tensor, device)
+        if show_results:
+            table.add_row(
+                str(audio_filepath.stem),
+                str(result["prediction"]),
+                str(result["class_id"]),
+                str(result["confidence"]),
+            )
+        results.append(result)
+
+    results_df = pd.DataFrame.from_records(results)
+    results_df.to_csv(results_filepath, index=False)
+    if show_results:
+        cns = Console()
+        cns.print(table)
+
+
 def main():
     model_path = "sireNN.pt"
-    test_audio = "./sounds/ambulance_and_traffic/sound_5.wav"
+    test_audio = "./sounds/ambulance_and_traffic/sound_200.wav"
+    directory_path = "./sounds/ambulance_and_traffic/"
 
     device = get_device()
     print(f"Using device: {device}")
@@ -120,6 +185,11 @@ def main():
         f"Ambulance={result['probabilities']['ambulance']:.2%}"
     )
     print("=" * 40)
+
+    print("Running model over the directory")
+    _ = predict_over_directory(
+        directory_path=Path.cwd() / directory_path, model_path=model_path
+    )
 
 
 if __name__ == "__main__":

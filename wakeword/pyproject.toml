@@ -8,5 +8,6 @@ dependencies = [
     "librosa>=0.11.0",
     "pandas>=3.0.1",
     "resampy>=0.4.3",
+    "rich>=14.3.3",
     "tqdm>=4.67.3",
 ]

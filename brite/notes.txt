@@ -1,1 +1,4 @@
 Haar Cascade to figure out blue-red parts
+
+https://github.com/roboflow/notebooks/blob/main/notebooks/train-yolo26-object-detection-on-custom-dataset.ipynb
+https://docs.ultralytics.com/modes/predict/#key-features-of-predict-mode

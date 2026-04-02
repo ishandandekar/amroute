@@ -11,3 +11,5 @@ We can go in two routes
 
 I want to go in normal frequency rule based thing because it seems sciency.
 So, I've made the model now, I can try to predict over this model using the other dataset. If the input shape doesn't support then I'll have to retune the window length. I can add the frequency thing over this to be even more precise. Lets see
+
+I should research on bandpass filter. Accuracy seems to jump up extremely when passing through it
