@@ -16,5 +16,11 @@ wakeword/Extracted_Features.pkl
 wakeword/sireNN.pt
 wakeword/uv.lock
 **/temp/**
+sirenn/cache/
+sirenn/sounds/
+sirenn/Extracted_Features*.pkl
+sirenn/temperature.json
+sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/
 .envrc
 **.csv
+**.pt**
