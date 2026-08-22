@@ -6,6 +6,9 @@ The idea is simple: detect ambulance sirens in real time and use that informatio
 
 This project explores how audio detection and simple routing logic could contribute to that goal.
 
+> [!NOTE]
+> This project is an experiment and is not intended for real-world deployment in its current form.
+
 ---
 
 # Why this project exists
@@ -26,10 +29,10 @@ The system listens to audio from a microphone and tries to detect the presence o
 
 Possible future directions include:
 
-* Integration with traffic signals
-* Vehicle-to-vehicle communication
-* Real-time routing for ambulances
-* Smart city infrastructure integration
+- Integration with traffic signals
+- Vehicle-to-vehicle communication
+- Real-time routing for ambulances
+- Smart city infrastructure integration
 
 ---
 
@@ -48,27 +51,24 @@ The goal is to keep the system lightweight enough to run locally.
 
 This is an early stage prototype. The current focus areas are:
 
-* Real-time audio stream processing
-* Ambulance siren classification
-* Low latency detection
+- Real-time audio stream processing
+- Ambulance siren classification
+- Low latency detection
 
 ---
 
 # Project goals
 
-* Detect ambulance sirens reliably in noisy city environments
-* Keep the system simple enough to run on edge devices
-* Provide a foundation for future smart traffic systems
+- Detect ambulance sirens reliably in noisy city environments
+- Keep the system simple enough to run on edge devices
+- Provide a foundation for future smart traffic systems
 
 ---
 
 # Disclaimer
-
-This project is an experiment and is not intended for real-world deployment in its current form.
 
 ---
 
 # Contributing
 
 If you find the idea interesting or want to experiment with siren detection or smart traffic systems, feel free to open an issue or contribute.
-
