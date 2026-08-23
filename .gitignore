@@ -24,3 +24,5 @@ sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/
 .envrc
 **.csv
 **.pt**
+
+*.mp4
