@@ -1,0 +1,18 @@
+[project]
+name = "amroute"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "librosa>=0.11.0",
+    "opencv-python>=4.13.0",
+    "pandas>=3.0.1",
+    "pyaudio>=0.2.14",
+    "resampy>=0.4.3",
+    "rich>=14.3.3",
+    "scipy>=1.18.1",
+    "torch>=2.13.0",
+    "tqdm>=4.67.3",
+    "ultralytics>=8.4.33",
+]
