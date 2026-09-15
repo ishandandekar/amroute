@@ -1,0 +1,190 @@
+{
+  "bbox": [
+    72.888,
+    19.08,
+    72.914,
+    19.097
+  ],
+  "region_net": "/home/ishan/Desktop/programs/pythonstuff/amroute/sim/scratch/mumbai.net.xml",
+  "chosen": {
+    "streets": [
+      "Lal Bahadur Shastri Marg"
+    ],
+    "node_path": [
+      "6135093717",
+      "13718378922",
+      "13718378924",
+      "13718332444",
+      "6574528384",
+      "11068333277",
+      "2622177312",
+      "6573838968",
+      "6576133000",
+      "13724540044",
+      "6576712151",
+      "13724540061",
+      "11068375325",
+      "13724540079",
+      "2622177320",
+      "7401055054",
+      "6581528406",
+      "12068074947",
+      "2622177326",
+      "2622177328",
+      "13536411026",
+      "13536411035",
+      "6583169980",
+      "11021339527",
+      "2622177330",
+      "12381358491",
+      "11021324197",
+      "2622177334",
+      "2622177336",
+      "13719082390",
+      "13719082388",
+      "2622177338",
+      "2622177340",
+      "2622177342",
+      "13719082387",
+      "14063479655",
+      "2622177344",
+      "2622177346",
+      "13719082385",
+      "13711148095",
+      "6576261763",
+      "1366900663",
+      "1233452316",
+      "619309778",
+      "6554897939",
+      "13711232880",
+      "12334170885",
+      "11052201602",
+      "11042291308",
+      "5758624138",
+      "10878020696",
+      "13711065209",
+      "6580762342",
+      "13817524051",
+      "13711065213",
+      "2244961579",
+      "11054276465",
+      "2622177361",
+      "2622177363",
+      "5477703696",
+      "5470707484",
+      "10277760448",
+      "1366900700",
+      "13703273503",
+      "2622177373",
+      "2622177375",
+      "2622177377"
+    ],
+    "signals": 9,
+    "length_m": 2344.2,
+    "speed_kph": 120.0,
+    "lanes": 2,
+    "origin_edge": "257804750#0",
+    "destination_edge": "315614623#5"
+  },
+  "alternatives": [
+    {
+      "streets": [
+        "Swami Vivekanand Road"
+      ],
+      "signals": 51,
+      "length_m": 12588.6,
+      "speed_kph": 100.0,
+      "lanes": 2,
+      "origin_edge": "1235213725",
+      "destination_edge": "1235442610"
+    },
+    {
+      "streets": [
+        "Bandra Kurla Complex Road"
+      ],
+      "signals": 36,
+      "length_m": 6383.4,
+      "speed_kph": 100.0,
+      "lanes": 3,
+      "origin_edge": "1253603264",
+      "destination_edge": "27055240"
+    },
+    {
+      "streets": [
+        "Swatantrya Veer Savarkar Marg"
+      ],
+      "signals": 18,
+      "length_m": 4247.7,
+      "speed_kph": 100.0,
+      "lanes": 2,
+      "origin_edge": "22849589#0",
+      "destination_edge": "236102845#1"
+    },
+    {
+      "streets": [
+        "Sion Panvel Highway"
+      ],
+      "signals": 17,
+      "length_m": 4649.7,
+      "speed_kph": 100.0,
+      "lanes": 4,
+      "origin_edge": "1268424017",
+      "destination_edge": "1140776078#2"
+    },
+    {
+      "streets": [
+        "Juhu Tara Road"
+      ],
+      "signals": 15,
+      "length_m": 5725.2,
+      "speed_kph": 100.0,
+      "lanes": 1,
+      "origin_edge": "1424718871",
+      "destination_edge": "1142033831"
+    },
+    {
+      "streets": [
+        "Linking Road"
+      ],
+      "signals": 14,
+      "length_m": 3054.0,
+      "speed_kph": 100.0,
+      "lanes": 1,
+      "origin_edge": "1226336530#0",
+      "destination_edge": "1293641194#3"
+    },
+    {
+      "streets": [
+        "Sion Bandra Link Road"
+      ],
+      "signals": 14,
+      "length_m": 2823.8,
+      "speed_kph": 100.0,
+      "lanes": 2,
+      "origin_edge": "1238603168#1",
+      "destination_edge": "1237732054#7"
+    },
+    {
+      "streets": [
+        "Dr Babasaheb Ambedkar Marg (Vincent Road)"
+      ],
+      "signals": 11,
+      "length_m": 1871.1,
+      "speed_kph": 100.0,
+      "lanes": 3,
+      "origin_edge": "100841107#0-AddedOnRampEdge",
+      "destination_edge": "102161593#3"
+    },
+    {
+      "streets": [
+        "Guru Hargovindji Road"
+      ],
+      "signals": 10,
+      "length_m": 2303.2,
+      "speed_kph": 100.0,
+      "lanes": 2,
+      "origin_edge": "1264143643",
+      "destination_edge": "1251127693"
+    }
+  ]
+}

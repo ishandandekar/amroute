@@ -28,3 +28,17 @@ sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/
 *.mp4
 **.xml
 **.pbf
+
+# keep hand-written smoke-test sources; generated net + logs stay ignored
+!sim/smoke/*.nod.xml
+!sim/smoke/*.edg.xml
+!sim/smoke/*.rou.xml
+!sim/smoke/*.sumocfg
+sim/smoke/*.net.xml
+sim/smoke/*.log
+
+# scratch crops + generated corridor artifacts live in repo (flatpak hides /tmp)
+sim/scratch/
+sim/corridor/*.net.xml
+sim/corridor/*.log
+!sim/corridor/*.rou.xml

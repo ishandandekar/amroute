@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<configuration><input><net-file value="corridor.net.xml" /><route-files value="corridor.rou.xml" /></input><time><begin value="0" /><end value="100" /></time><processing><no-step-log value="true" /><ignore-route-errors value="true" /></processing></configuration>

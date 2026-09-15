@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec flatpak run --share=network --filesystem=host --command=sumo-gui org.eclipse.sumo "$@"

@@ -77,11 +77,40 @@ sim/
    a version mismatch fails on connect).
 4. Smoke test: `traci.connect` a minimal `sumo --remote-port` session.
 
+## Corridor (M1)
+
+Chosen study corridor (issue #2). Candidates were auto-detected from the Bombay region net `mumbai.net.xml`; the corridor net was cropped to ~5 km² around the pick.
+
+- **Corridor:** Lal Bahadur Shastri Marg
+- **BBox (lon,lat):** 72.888, 19.08, 72.914, 19.097
+- **Signalized intersections on the route:** 9
+- **Length:** 2.34 km
+- **Speed / lanes:** 120 km/h, 2 lanes (median)
+- **Origin edge:** `257804750#0`
+- **Destination edge:** `315614623#5`
+- **Net:** `sim/corridor/corridor.net.xml`; regenerate with
+  `uv run python sim/corridor.py crop 72.888,19.08,72.914,19.097`
+- **Region net (candidate detection):** regenerate with
+  `uv run python sim/corridor.py crop 72.82,18.95,72.94,19.12 --osm-out sim/scratch/mumbai.osm --net-out sim/scratch/mumbai.net.xml`
+
+Alternatives (kept, auto-detected):
+
+1. Swami Vivekanand Road: 51 signals, 12.59 km, 100 km/h, 2 lanes, O=1235213725 D=1235442610
+2. Bandra Kurla Complex Road: 36 signals, 6.38 km, 100 km/h, 3 lanes, O=1253603264 D=27055240
+3. Swatantrya Veer Savarkar Marg: 18 signals, 4.25 km, 100 km/h, 2 lanes, O=22849589#0 D=236102845#1
+4. Sion Panvel Highway: 17 signals, 4.65 km, 100 km/h, 4 lanes, O=1268424017 D=1140776078#2
+5. Juhu Tara Road: 15 signals, 5.73 km, 100 km/h, 1 lanes, O=1424718871 D=1142033831
+6. Linking Road: 14 signals, 3.05 km, 100 km/h, 1 lanes, O=1226336530#0 D=1293641194#3
+7. Sion Bandra Link Road: 14 signals, 2.82 km, 100 km/h, 2 lanes, O=1238603168#1 D=1237732054#7
+8. Dr Babasaheb Ambedkar Marg (Vincent Road): 11 signals, 1.87 km, 100 km/h, 3 lanes, O=100841107#0-AddedOnRampEdge D=102161593#3
+9. Guru Hargovindji Road: 10 signals, 2.30 km, 100 km/h, 2 lanes, O=1264143643 D=1251127693
+
 ## Milestones
 
 0. **M0 — Tooling:** conda SUMO env + `uv add traci`, TraCI connect + version match.
 1. **M1 — Corridor:** bbox-crop Bombay `.pbf` -> netconvert -> `.net.xml`; auto-pick 3 candidate
-   corridors (arterial + >=4 signalized intersections), pick one with the user.
+   corridors (arterial + >=4 signalized intersections), pick one with the user. **Done** — LBS Marg
+   corridor, see [Corridor (M1)](#corridor-m1).
 2. **M2 — Baseline runs:** background flows + 1 fixed EV, R=0; verify travel-time measurement.
 3. **M3 — Green corridor:** preemption trigger (R) + lane clearance; verify the EV never stops
    mid-corridor and TLCs hold green. Risk item: shunt behavior on a 4-lane arterial.

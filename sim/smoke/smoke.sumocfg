@@ -1,0 +1,11 @@
+<configuration>
+    <input>
+        <net-file value="smoke.net.xml" />
+        <route-files value="smoke.rou.xml" />
+    </input>
+    <time>
+        <begin value="0" />
+        <end value="2000" />
+        <step-length value="1" />
+    </time>
+</configuration>
