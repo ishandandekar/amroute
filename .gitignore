@@ -42,3 +42,9 @@ sim/scratch/
 sim/corridor/*.net.xml
 sim/corridor/*.log
 !sim/corridor/*.rou.xml
+# M2 generated scenario artifacts: bg rou, ev rou, per-density sumocfg, results
+sim/corridor/bg.*.rou.xml
+sim/corridor/ev.rou.xml
+sim/corridor/corridor.*.sumocfg
+sim/corridor/ev.route.json
+sim/results/
