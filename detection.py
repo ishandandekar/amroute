@@ -8,14 +8,13 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "sirenn"))
 
 import cv2
+import inference as sirenn
 import numpy as np
 import pyaudio
 import torch
 from rich.console import Console
 from rich.panel import Panel
 from ultralytics import YOLO
-
-import inference as sirenn
 
 
 class Detections:
@@ -80,7 +79,9 @@ class VisionDetector:
         source = int(self.source) if self.source.isdigit() else self.source
         cap = cv2.VideoCapture(source)
         if not cap.isOpened():
-            self.console.print(f"[bold red][vision] could not open source: {self.source}[/]")
+            self.console.print(
+                f"[bold red][vision] could not open source: {self.source}[/]"
+            )
             return
 
         writer = None
@@ -110,9 +111,7 @@ class VisionDetector:
                         continue
                     detected = True
                     if now - last_alert >= self.cooldown:
-                        label = result.names.get(
-                            int(box.cls[0]), str(int(box.cls[0]))
-                        )
+                        label = result.names.get(int(box.cls[0]), str(int(box.cls[0])))
                         self.console.print(
                             f"[vision][{time.strftime('%H:%M:%S')}] {label} detected (conf={conf:.2f})"
                         )
@@ -242,9 +241,8 @@ class AudioDetector:
                 if rms < self.rms_threshold or rms < sirenn.RELATIVE_GATE * noise_floor:
                     detect_streak = 0
                     noise_floor = (
-                        (1 - sirenn.NOISE_FLOOR_ALPHA) * noise_floor
-                        + sirenn.NOISE_FLOOR_ALPHA * rms
-                    )
+                        1 - sirenn.NOISE_FLOOR_ALPHA
+                    ) * noise_floor + sirenn.NOISE_FLOOR_ALPHA * rms
                     continue
 
                 tensor = sirenn.preprocess_audio_array(audio, sr=capture_sr).to(device)
@@ -397,12 +395,24 @@ def main():
     stop = threading.Event()
 
     vision = VisionDetector(
-        detections, stop, args.model, args.source, args.conf, args.imgsz,
-        args.output, args.cooldown, console,
+        detections,
+        stop,
+        args.model,
+        args.source,
+        args.conf,
+        args.imgsz,
+        args.output,
+        args.cooldown,
+        console,
     )
     audio = AudioDetector(
-        detections, stop, args.audio_model, args.input_device,
-        args.rms_threshold, args.hysteresis, console,
+        detections,
+        stop,
+        args.audio_model,
+        args.input_device,
+        args.rms_threshold,
+        args.hysteresis,
+        console,
     )
 
     console.print(

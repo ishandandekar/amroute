@@ -5,10 +5,9 @@ from pathlib import Path
 
 import numpy as np
 import pyaudio
-
 from inference import (
-    SIGNAL_THRESHOLD,
     CHUNK_SECONDS,
+    SIGNAL_THRESHOLD,
     choose_input_device,
     probe_devices,
 )
@@ -111,9 +110,7 @@ def main():
                 status = "silence"
             else:
                 status = "signal"
-            rms_str = (
-                f"{row['rms']:.6f} {status}" if row["rms"] is not None else status
-            )
+            rms_str = f"{row['rms']:.6f} {status}" if row["rms"] is not None else status
             table.add_row(str(row["index"]), row["name"], str(row["sr"]), rms_str)
         Console().print(table)
         p.terminate()

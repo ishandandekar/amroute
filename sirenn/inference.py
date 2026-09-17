@@ -5,17 +5,15 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import preprocess
 import pyaudio
 import torch
-import torch.nn as nn
 from rich import box
 from rich.console import Console
 from rich.progress import track
 from rich.table import Table
-
-import pandas as pd
-
-import preprocess
+from torch import nn
 
 
 class SireNN(nn.Module):
@@ -256,7 +254,12 @@ def read_frames(stream: pyaudio.Stream, num_bytes: int, timeout: float) -> bytes
 
 
 def save_window(
-    cache_dir: Path, data: bytes, tag: str, timestamp: str, conf: float, rms: float,
+    cache_dir: Path,
+    data: bytes,
+    tag: str,
+    timestamp: str,
+    conf: float,
+    rms: float,
     framerate: int = SR,
 ):
     path = cache_dir / f"{tag}_{timestamp}_conf_{conf:.4f}_rms_{rms:.4f}.wav"
@@ -421,7 +424,9 @@ def run_mic_mode(
 
             if rms < rms_threshold:
                 detect_streak = 0
-                noise_floor = (1 - NOISE_FLOOR_ALPHA) * noise_floor + NOISE_FLOOR_ALPHA * rms
+                noise_floor = (
+                    1 - NOISE_FLOOR_ALPHA
+                ) * noise_floor + NOISE_FLOOR_ALPHA * rms
                 if not silence_warned:
                     print(
                         f"  (no signal on device idx {selected} - is the mic muted or "
@@ -433,7 +438,9 @@ def run_mic_mode(
 
             if rms < RELATIVE_GATE * noise_floor:
                 detect_streak = 0
-                noise_floor = (1 - NOISE_FLOOR_ALPHA) * noise_floor + NOISE_FLOOR_ALPHA * rms
+                noise_floor = (
+                    1 - NOISE_FLOOR_ALPHA
+                ) * noise_floor + NOISE_FLOOR_ALPHA * rms
                 print(
                     f"[w#{window_id}] background | rms={rms:.6f} | peak={peak:.6f} | "
                     f"floor={noise_floor:.4f}"
@@ -464,7 +471,9 @@ def run_mic_mode(
 
             saved = ""
             if save_all or is_detection:
-                path = save_window(cache_dir, data, tag, timestamp, conf, rms, framerate=capture_sr)
+                path = save_window(
+                    cache_dir, data, tag, timestamp, conf, rms, framerate=capture_sr
+                )
                 saved_count += 1
                 saved = f" | saved: {path}"
 

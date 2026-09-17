@@ -5,22 +5,18 @@ import re
 from pathlib import Path
 
 import numpy as np
+import preprocess
 import torch
-import torch.nn as nn
-import torch.optim as optim
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
-import preprocess
 
 CLASS_LABELS = {0: "traffic", 1: "siren", 2: "noise"}
 CLASS_TO_ID = {"traffic": 0, "siren": 1, "noise": 2}
 
-SIRENNET_ROOT = (
-    "sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/sireNNet"
-)
+SIRENNET_ROOT = "sireNNet-Emergency Vehicle Siren Classification Dataset For Urban Applications/sireNNet"
 CACHE_DIR = Path("cache")
 FEATURES_CACHE = Path("Extracted_Features_v2.pkl")
 TEMPERATURE_FILE = Path("temperature.json")
@@ -270,9 +266,7 @@ def ece(probs, labels, n_bins=15):
         if mask.sum() == 0:
             continue
         weight = mask.sum().item() / len(labels)
-        total += weight * abs(
-            acc[mask].mean().item() - conf[mask].mean().item()
-        )
+        total += weight * abs(acc[mask].mean().item() - conf[mask].mean().item())
     return total
 
 
@@ -283,7 +277,9 @@ def report_calibration(logits, labels, temperature, tag):
     conf_mat = confusion_matrix(labels.numpy(), pred.numpy())
     print(f"\n[{tag}] temperature={temperature:.4f}")
     print(f"[{tag}] accuracy={acc:.4f} ece={ece(probs, labels):.4f}")
-    print(f"[{tag}] confusion matrix (rows=truth {list(CLASS_LABELS.values())}, cols=pred):")
+    print(
+        f"[{tag}] confusion matrix (rows=truth {list(CLASS_LABELS.values())}, cols=pred):"
+    )
     print(conf_mat)
 
 
@@ -312,7 +308,9 @@ def main():
     feats = [f for f, _ in extracted]
     labels = np.array([l for _, l in extracted])
     print(f"Total samples: {len(extracted)}")
-    print(f"Label distribution: {dict(zip(CLASS_LABELS.values(), np.bincount(labels)))}")
+    print(
+        f"Label distribution: {dict(zip(CLASS_LABELS.values(), np.bincount(labels)))}"
+    )
 
     train_idx, val_idx = train_test_split(
         np.arange(len(labels)),
@@ -353,7 +351,9 @@ def main():
     temperature = fit_temperature(val_logits, val_labels)
     report_calibration(val_logits, val_labels, temperature, "after temperature")
 
-    uncompiled_model = SireNN(input_dim=preprocess.N_MFCC, hidden_dim=128, num_classes=3)
+    uncompiled_model = SireNN(
+        input_dim=preprocess.N_MFCC, hidden_dim=128, num_classes=3
+    )
     fixed_state_dict = {
         k.removeprefix("_orig_mod."): v for k, v in model.state_dict().items()
     }

@@ -10,13 +10,19 @@ WINDOW = "Ambulance Detection"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Real-time ambulance detection")
-    parser.add_argument("--source", default="0", help="webcam index, video file, or RTSP URL")
     parser.add_argument(
-        "--model", default="./best_YOLO_ambulance_detect.pt", help="path to YOLO weights"
+        "--source", default="0", help="webcam index, video file, or RTSP URL"
+    )
+    parser.add_argument(
+        "--model",
+        default="./best_YOLO_ambulance_detect.pt",
+        help="path to YOLO weights",
     )
     parser.add_argument("--conf", type=float, default=0.25, help="confidence threshold")
     parser.add_argument("--imgsz", type=int, default=640, help="inference image size")
-    parser.add_argument("--output", default=None, help="save annotated stream to this mp4 file")
+    parser.add_argument(
+        "--output", default=None, help="save annotated stream to this mp4 file"
+    )
     parser.add_argument(
         "--cooldown", type=float, default=2.0, help="seconds between detection alerts"
     )
@@ -59,7 +65,9 @@ def main():
             if not ok:
                 break
 
-            result = model.predict(frame, conf=args.conf, imgsz=args.imgsz, verbose=False)[0]
+            result = model.predict(
+                frame, conf=args.conf, imgsz=args.imgsz, verbose=False
+            )[0]
 
             now = time.perf_counter()
             inst_fps = 1.0 / max(now - prev_t, 1e-6)
@@ -85,7 +93,9 @@ def main():
                 h, w = annotated.shape[:2]
                 src_fps = cap.get(cv2.CAP_PROP_FPS)
                 out_fps = src_fps if src_fps > 1 else (fps if fps > 0 else 30.0)
-                writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (w, h))
+                writer = cv2.VideoWriter(
+                    args.output, cv2.VideoWriter_fourcc(*"mp4v"), out_fps, (w, h)
+                )
 
             if writer is not None:
                 writer.write(annotated)

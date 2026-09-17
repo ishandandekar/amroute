@@ -22,7 +22,6 @@ import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import osmium
 import sumolib
@@ -45,29 +44,48 @@ SPEC_PATH = SIM_DIR / "SPEC.md"
 BBOX_HELP = "minlon,minlat,maxlon,maxlat"
 
 _DRIVABLE = {
-    "motorway", "motorway_link",
-    "trunk", "trunk_link",
-    "primary", "primary_link",
-    "secondary", "secondary_link",
-    "tertiary", "tertiary_link",
-    "unclassified", "residential",
-    "living_street", "service",
+    "motorway",
+    "motorway_link",
+    "trunk",
+    "trunk_link",
+    "primary",
+    "primary_link",
+    "secondary",
+    "secondary_link",
+    "tertiary",
+    "tertiary_link",
+    "unclassified",
+    "residential",
+    "living_street",
+    "service",
 }
 
 _ARTERIAL = {
-    "highway.motorway", "highway.motorway_link",
-    "highway.trunk", "highway.trunk_link",
-    "highway.primary", "highway.primary_link",
-    "highway.secondary", "highway.secondary_link",
-    "highway.tertiary", "highway.tertiary_link",
+    "highway.motorway",
+    "highway.motorway_link",
+    "highway.trunk",
+    "highway.trunk_link",
+    "highway.primary",
+    "highway.primary_link",
+    "highway.secondary",
+    "highway.secondary_link",
+    "highway.tertiary",
+    "highway.tertiary_link",
 }
 
 
 class _NodeFilter(osmium.SimpleHandler):
-    def __init__(self, minlon: float, minlat: float, maxlon: float, maxlat: float) -> None:
+    def __init__(
+        self, minlon: float, minlat: float, maxlon: float, maxlat: float
+    ) -> None:
         super().__init__()
-        self.minlon, self.minlat, self.maxlon, self.maxlat = minlon, minlat, maxlon, maxlat
-        self.keep: Dict[int, Tuple[float, float, Dict[str, str]]] = {}
+        self.minlon, self.minlat, self.maxlon, self.maxlat = (
+            minlon,
+            minlat,
+            maxlon,
+            maxlat,
+        )
+        self.keep: dict[int, tuple[float, float, dict[str, str]]] = {}
 
     def node(self, nd) -> None:
         loc = nd.location
@@ -79,10 +97,12 @@ class _NodeFilter(osmium.SimpleHandler):
 
 
 class _WayFilter(osmium.SimpleHandler):
-    def __init__(self, keep_nodes: Dict[int, Tuple[float, float, Dict[str, str]]]) -> None:
+    def __init__(
+        self, keep_nodes: dict[int, tuple[float, float, dict[str, str]]]
+    ) -> None:
         super().__init__()
         self.keep_nodes = keep_nodes
-        self.ways: List[Tuple[int, List[int], Dict[str, str]]] = []
+        self.ways: list[tuple[int, list[int], dict[str, str]]] = []
 
     def way(self, w) -> None:
         tags = {t.k: t.v for t in w.tags}
@@ -95,11 +115,16 @@ class _WayFilter(osmium.SimpleHandler):
         self.ways.append((w.id, inside, tags))
 
 
-def write_osm(path: Path, nodes: Dict[int, Tuple[float, float, Dict[str, str]]],
-              ways: List[Tuple[int, List[int], Dict[str, str]]]) -> None:
+def write_osm(
+    path: Path,
+    nodes: dict[int, tuple[float, float, dict[str, str]]],
+    ways: list[tuple[int, list[int], dict[str, str]]],
+) -> None:
     root = ET.Element("osm", version="0.6", generator="amroute corridor.py")
     for nid, (lon, lat, tags) in nodes.items():
-        elem = ET.SubElement(root, "node", id=str(nid), lat=f"{lat:.7f}", lon=f"{lon:.7f}")
+        elem = ET.SubElement(
+            root, "node", id=str(nid), lat=f"{lat:.7f}", lon=f"{lon:.7f}"
+        )
         for k, v in tags.items():
             ET.SubElement(elem, "tag", k=k, v=v)
     for wid, refs, tags in ways:
@@ -121,7 +146,9 @@ def resolve_sumo_bin() -> str:
     which = shutil.which("sumo")
     if which:
         return which
-    raise FileNotFoundError("sumo binary not found; set SUMO_BIN or add sim/vendor/bin to PATH")
+    raise FileNotFoundError(
+        "sumo binary not found; set SUMO_BIN or add sim/vendor/bin to PATH"
+    )
 
 
 def resolve_netconvert_bin() -> str:
@@ -134,20 +161,22 @@ def resolve_netconvert_bin() -> str:
     which = shutil.which("netconvert")
     if which:
         return which
-    raise FileNotFoundError("netconvert binary not found; set NETCONVERT_BIN or add sim/vendor/bin to PATH")
+    raise FileNotFoundError(
+        "netconvert binary not found; set NETCONVERT_BIN or add sim/vendor/bin to PATH"
+    )
 
 
-def parse_bbox(text: str) -> Tuple[float, float, float, float]:
+def parse_bbox(text: str) -> tuple[float, float, float, float]:
     parts = [float(p) for p in text.replace(" ", "").split(",")]
     if len(parts) != 4:
         raise ValueError(f"bbox must be {BBOX_HELP}")
     return parts[0], parts[1], parts[2], parts[3]
 
 
-def net_stats(net_path: Path) -> Dict[str, int]:
+def net_stats(net_path: Path) -> dict[str, int]:
     tree = ET.parse(net_path)
     root = tree.getroot()
-    edges = int(len(root.findall("edge")))
+    edges = len(root.findall("edge"))
     internal = 0
     for e in root.findall("edge"):
         if "internal" in e.get("function", "") or (e.get("id") or "").startswith(":"):
@@ -157,7 +186,7 @@ def net_stats(net_path: Path) -> Dict[str, int]:
     return {"edges": edges, "internal": internal, "nodes": nodes, "tlLogic": tls}
 
 
-def crop(bbox: Tuple[float, float, float, float], osm_out: Path, net_out: Path) -> None:
+def crop(bbox: tuple[float, float, float, float], osm_out: Path, net_out: Path) -> None:
     console = Console()
     minlon, minlat, maxlon, maxlat = bbox
     osm_out.parent.mkdir(parents=True, exist_ok=True)
@@ -167,19 +196,24 @@ def crop(bbox: Tuple[float, float, float, float], osm_out: Path, net_out: Path) 
     wf.apply_file(str(PBF))
     osm_out.parent.mkdir(parents=True, exist_ok=True)
     write_osm(osm_out, nf.keep, wf.ways)
-    console.print(f"[green]crop[/green] bbox={bbox} -> {len(nf.keep)} nodes, {len(wf.ways)} ways -> {osm_out.name}")
+    console.print(
+        f"[green]crop[/green] bbox={bbox} -> {len(nf.keep)} nodes, {len(wf.ways)} ways -> {osm_out.name}"
+    )
 
     nc = resolve_netconvert_bin()
     cmd = [
         nc,
-        "--osm-files", str(osm_out),
-        "--output-file", str(net_out),
+        "--osm-files",
+        str(osm_out),
+        "--output-file",
+        str(net_out),
         "--osm.skip-duplicates-check",
         "--roundabouts.guess",
         "--ramps.guess",
         "--tls.guess-signals",
         "--output.street-names",
-        "--osm.extra-attributes", "name",
+        "--osm.extra-attributes",
+        "name",
     ]
     console.print(f"[green]netconvert[/green] {' '.join(cmd)}")
     proc = subprocess.run(cmd, text=True, capture_output=True)
@@ -191,18 +225,25 @@ def crop(bbox: Tuple[float, float, float, float], osm_out: Path, net_out: Path) 
         raise SystemExit(f"netconvert failed (rc={proc.returncode})")
 
     stats = net_stats(net_out)
-    console.print(f"[green]net[/green] {net_out.name}: {stats['edges']} edges ({stats['internal']} internal), "
-                  f"{stats['nodes']} nodes, {stats['tlLogic']} tlLogic")
+    console.print(
+        f"[green]net[/green] {net_out.name}: {stats['edges']} edges ({stats['internal']} internal), "
+        f"{stats['nodes']} nodes, {stats['tlLogic']} tlLogic"
+    )
     CORRIDOR_DIR.mkdir(parents=True, exist_ok=True)
     CROP_PATH.write_text(json.dumps({"bbox": list(bbox)}) + "\n")
     if stats["tlLogic"] < 4:
-        console.print("[yellow]warning[/yellow] fewer than 4 traffic lights in the crop", style="yellow")
+        console.print(
+            "[yellow]warning[/yellow] fewer than 4 traffic lights in the crop",
+            style="yellow",
+        )
 
 
 def ensure_scaffold() -> None:
     CORRIDOR_DIR.mkdir(parents=True, exist_ok=True)
     if not ROU_PATH.exists():
-        ET.ElementTree(ET.Element("routes")).write(ROU_PATH, encoding="UTF-8", xml_declaration=True)
+        ET.ElementTree(ET.Element("routes")).write(
+            ROU_PATH, encoding="UTF-8", xml_declaration=True
+        )
     if not CFG_PATH.exists():
         cfg = ET.Element("configuration")
         inp = ET.SubElement(cfg, "input")
@@ -232,13 +273,25 @@ def validate(net_path: Path) -> None:
         print(proc.stderr, file=sys.stderr)
     if proc.returncode != 0:
         raise SystemExit(f"sumo validation failed (rc={proc.returncode})")
-    console.print(f"[green]validate[/green] OK: {net_path.name} loaded for 100s headless")
+    console.print(
+        f"[green]validate[/green] OK: {net_path.name} loaded for 100s headless"
+    )
 
 
 class Corridor:
-    def __init__(self, name_seq: List[str], node_path: List[str], edge_ids: List[str],
-                 signals: int, length_m: float, crow_m: float, first: str, last: str,
-                 speed_kph: float = 0.0, lanes: int = 0) -> None:
+    def __init__(
+        self,
+        name_seq: list[str],
+        node_path: list[str],
+        edge_ids: list[str],
+        signals: int,
+        length_m: float,
+        crow_m: float,
+        first: str,
+        last: str,
+        speed_kph: float = 0.0,
+        lanes: int = 0,
+    ) -> None:
         self.name_seq = name_seq
         self.node_path = node_path
         self.edge_ids = edge_ids
@@ -269,8 +322,8 @@ def load_arterial_net(net_path: Path):
         typ = (e.getType() or "").strip()
         if typ in _ARTERIAL:
             edges.append(e)
-    adj: Dict[str, List[Tuple[str, object]]] = {}
-    pair: Dict[Tuple[str, str], object] = {}
+    adj: dict[str, list[tuple[str, object]]] = {}
+    pair: dict[tuple[str, str], object] = {}
     for e in edges:
         f = e.getFromNode().getID()
         t = e.getToNode().getID()
@@ -281,12 +334,12 @@ def load_arterial_net(net_path: Path):
     return net, edges, adj, pair
 
 
-def _signal_ids(net) -> List[str]:
+def _signal_ids(net) -> list[str]:
     tls_nodes = net.getTrafficLights()
     return [n.getID() for n in tls_nodes]
 
 
-def _components(adj: Dict[str, List[Tuple[str, object]]]) -> List[List[str]]:
+def _components(adj: dict[str, list[tuple[str, object]]]) -> list[list[str]]:
     seen = set()
     comps = []
     for start in adj:
@@ -305,7 +358,7 @@ def _components(adj: Dict[str, List[Tuple[str, object]]]) -> List[List[str]]:
     return comps
 
 
-def _path_between(adj, pair, a: str, b: str) -> Optional[List[str]]:
+def _path_between(adj, pair, a: str, b: str) -> list[str] | None:
     if a == b:
         return [a]
     parent = {a: None}
@@ -334,7 +387,7 @@ def _crow_distance(net, a: str, b: str) -> float:
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
 
-def _named_graph(named_edges: List[object]):
+def _named_graph(named_edges: list[object]):
     same = defaultdict(list)
     for e in named_edges:
         f = e.getFromNode().getID()
@@ -344,7 +397,7 @@ def _named_graph(named_edges: List[object]):
     return same
 
 
-def _path_stats(path: List[str], pair) -> Tuple[List[str], float, int, float]:
+def _path_stats(path: list[str], pair) -> tuple[list[str], float, int, float]:
     edge_ids = []
     length = 0.0
     lanes_list = []
@@ -360,15 +413,15 @@ def _path_stats(path: List[str], pair) -> Tuple[List[str], float, int, float]:
     return edge_ids, length, lanes, speed * 3.6
 
 
-def candidates(net_path: Path, top: int = 3) -> List[Corridor]:
+def candidates(net_path: Path, top: int = 3) -> list[Corridor]:
     net, edges, adj, pair = load_arterial_net(net_path)
     signals = set(_signal_ids(net))
 
-    by_name: Dict[str, List[object]] = {}
+    by_name: dict[str, list[object]] = {}
     for e in edges:
         by_name.setdefault(e.getName().strip(), []).append(e)
 
-    found: List[Corridor] = []
+    found: list[Corridor] = []
     for name, named_edges in by_name.items():
         if not name:
             continue
@@ -379,7 +432,7 @@ def candidates(net_path: Path, top: int = 3) -> List[Corridor]:
                 continue
             best_path = None
             for i, a in enumerate(endpoints):
-                for b in endpoints[i + 1:]:
+                for b in endpoints[i + 1 :]:
                     path = _path_between(same, None, a, b)
                     if path and (best_path is None or len(path) > len(best_path)):
                         best_path = path
@@ -390,12 +443,24 @@ def candidates(net_path: Path, top: int = 3) -> List[Corridor]:
                 continue
             edge_ids, length, lanes, speed_kph = _path_stats(best_path, pair)
             crow = _crow_distance(net, best_path[0], best_path[-1])
-            found.append(Corridor([name], best_path, edge_ids, sig, length, crow,
-                                  edge_ids[0], edge_ids[-1], speed_kph, lanes))
+            found.append(
+                Corridor(
+                    [name],
+                    best_path,
+                    edge_ids,
+                    sig,
+                    length,
+                    crow,
+                    edge_ids[0],
+                    edge_ids[-1],
+                    speed_kph,
+                    lanes,
+                )
+            )
 
     found.sort(key=lambda c: (c.signals, c.length_m), reverse=True)
 
-    selected: List[Corridor] = []
+    selected: list[Corridor] = []
     used_names = set()
     for c in found:
         key = c.name_seq[0] if c.name_seq else ""
@@ -408,7 +473,7 @@ def candidates(net_path: Path, top: int = 3) -> List[Corridor]:
     return selected
 
 
-def print_candidates(cands: List[Corridor]) -> None:
+def print_candidates(cands: list[Corridor]) -> None:
     console = Console()
     table = Table(title="Candidate corridors (arterial + >=4 signalized intersections)")
     table.add_column("#")
@@ -434,13 +499,18 @@ def print_candidates(cands: List[Corridor]) -> None:
 
 
 def summary_line(c: Corridor) -> str:
-    return (f"{c.strace}: {c.signals} signals, {c.length_m / 1000:.2f} km, "
-            f"{c.speed_kph:.0f} km/h, {c.lanes} lanes, "
-            f"O={c.first} D={c.last}")
+    return (
+        f"{c.strace}: {c.signals} signals, {c.length_m / 1000:.2f} km, "
+        f"{c.speed_kph:.0f} km/h, {c.lanes} lanes, "
+        f"O={c.first} D={c.last}"
+    )
 
 
-def record_chosen(bbox: Tuple[float, float, float, float], chosen: Corridor,
-                  alternatives: List[Corridor]) -> None:
+def record_chosen(
+    bbox: tuple[float, float, float, float],
+    chosen: Corridor,
+    alternatives: list[Corridor],
+) -> None:
     CORRIDOR_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "bbox": list(bbox),
@@ -456,9 +526,15 @@ def record_chosen(bbox: Tuple[float, float, float, float], chosen: Corridor,
             "destination_edge": chosen.last,
         },
         "alternatives": [
-            {"streets": c.name_seq, "signals": c.signals, "length_m": round(c.length_m, 1),
-             "speed_kph": round(c.speed_kph, 1), "lanes": c.lanes,
-             "origin_edge": c.first, "destination_edge": c.last}
+            {
+                "streets": c.name_seq,
+                "signals": c.signals,
+                "length_m": round(c.length_m, 1),
+                "speed_kph": round(c.speed_kph, 1),
+                "lanes": c.lanes,
+                "origin_edge": c.first,
+                "destination_edge": c.last,
+            }
             for c in alternatives
         ],
     }
@@ -483,7 +559,12 @@ def record_chosen(bbox: Tuple[float, float, float, float], chosen: Corridor,
         + "\n\n"
     )
     if "## Corridor (M1)" in spec:
-        spec = re.sub(r"## Corridor \(M1\).*?(?=\n## |\Z)", section.rstrip(), spec, flags=re.S)
+        spec = re.sub(
+            r"## Corridor \(M1\).*?(?=\n## |\Z)",
+            section.rstrip(),
+            spec,
+            flags=re.DOTALL,
+        )
     else:
         spec = spec.replace("## Milestones", section + "## Milestones")
     SPEC_PATH.write_text(spec)
@@ -510,12 +591,19 @@ def choose(index: int, region_net: Path, corridor_net: Path) -> None:
     else:
         bbox = (0.0, 0.0, 0.0, 0.0)
     record_chosen(bbox, chosen, alternatives)
-    Console().print(f"[green]choose[/green] recorded candidate {index}: {summary_line(chosen)}")
+    Console().print(
+        f"[green]choose[/green] recorded candidate {index}: {summary_line(chosen)}"
+    )
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="amroute corridor crop + candidate pick")
-    ap.add_argument("--net", type=Path, default=NET_PATH, help="corridor net file (default sim/corridor/corridor.net.xml)")
+    ap.add_argument(
+        "--net",
+        type=Path,
+        default=NET_PATH,
+        help="corridor net file (default sim/corridor/corridor.net.xml)",
+    )
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_crop = sub.add_parser("crop", help="bbox-crop Bombay pbf -> corridor.net.xml")
@@ -529,11 +617,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_cand.add_argument("--top", type=int, default=3)
 
     p_choose = sub.add_parser("choose", help="record the picked corridor")
-    p_choose.add_argument("index", type=int, help="index into the region-net candidate list")
-    p_choose.add_argument("--region-net", type=Path, default=REGION_NET,
-                          help="net the candidate table was printed from (default sim/scratch/mumbai.net.xml)")
-    p_choose.add_argument("--corridor-net", type=Path, default=NET_PATH,
-                          help="final cropped corridor net to record O/D edges from")
+    p_choose.add_argument(
+        "index", type=int, help="index into the region-net candidate list"
+    )
+    p_choose.add_argument(
+        "--region-net",
+        type=Path,
+        default=REGION_NET,
+        help="net the candidate table was printed from (default sim/scratch/mumbai.net.xml)",
+    )
+    p_choose.add_argument(
+        "--corridor-net",
+        type=Path,
+        default=NET_PATH,
+        help="final cropped corridor net to record O/D edges from",
+    )
     args = ap.parse_args(argv)
 
     if args.command == "crop":

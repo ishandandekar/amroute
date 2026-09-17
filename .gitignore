@@ -47,4 +47,6 @@ sim/corridor/bg.*.rou.xml
 sim/corridor/ev.rou.xml
 sim/corridor/corridor.*.sumocfg
 sim/corridor/ev.route.json
+# hand-written sumo-gui view for corridor runs (loaded by run.py --gui)
+!sim/corridor/gui.settings.xml
 sim/results/

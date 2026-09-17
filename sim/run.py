@@ -16,18 +16,19 @@ import argparse
 import csv
 import json
 import math
+import os
 import shutil
 import socket
 import subprocess
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import traci
+from control import LaneClearanceController, PreemptionController, format_r
 from rich.console import Console
 from rich.table import Table
-
-from control import LaneClearanceController, PreemptionController, format_r
 from scenario import build_many
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +44,8 @@ STOP_SPEED = 0.1  # m/s below which the EV counts as stopped
 RESUME_SPEED = 1.0  # m/s above which a stop episode ends
 RED_DIST = 30.0  # m: max distance to a non-green signal for a "red stop" flag
 GREEN_STATES = ("g", "G", "y", "Y")
+GUI_STEP_DELAY = 0.1  # s to sleep between steps in GUI mode (~10 steps/s wall)
+GUI_ZOOM = 500.0  # sumo-gui zoom when tracking the EV (100 = whole network fits)
 
 
 def find_free_port() -> int:
@@ -51,16 +54,19 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def resolve_sumo_bin(env_bin: str | None) -> str:
+def resolve_sumo_bin(env_bin: str | None, gui: bool = False) -> str:
+    name = "sumo-gui" if gui else "sumo"
     if env_bin:
         return env_bin
-    wrapper = REPO_ROOT / "sim" / "vendor" / "bin" / "sumo"
+    wrapper = REPO_ROOT / "sim" / "vendor" / "bin" / name
     if wrapper.is_file():
         return str(wrapper)
-    which = shutil.which("sumo")
+    which = shutil.which(name)
     if which:
         return which
-    raise FileNotFoundError("sumo binary not found; set SUMO_BIN or add sim/vendor/bin to PATH")
+    raise FileNotFoundError(
+        f"{name} binary not found; set SUMO_BIN or add sim/vendor/bin to PATH"
+    )
 
 
 def get_version_summary() -> str:
@@ -70,7 +76,9 @@ def get_version_summary() -> str:
 
 def check_version_alignment() -> None:
     _, sumo_version = traci.getVersion()
-    sumo_release = sumo_version.split()[1] if len(sumo_version.split()) > 1 else sumo_version
+    sumo_release = (
+        sumo_version.split()[1] if len(sumo_version.split()) > 1 else sumo_version
+    )
     if sumo_release != traci.__version__:
         raise RuntimeError(
             f"TraCI version mismatch: sumo={sumo_release} traci={traci.__version__}; "
@@ -78,9 +86,20 @@ def check_version_alignment() -> None:
         )
 
 
-def launch_sumo(workdir: Path, cfg: str, log_path: Path, sumo_bin: str):
+def launch_sumo(
+    workdir: Path,
+    cfg: str,
+    log_path: Path,
+    sumo_bin: str,
+    delay_ms: int | None = None,
+    gui_settings: Path | None = None,
+):
     port = find_free_port()
     cmd = [sumo_bin, "-c", cfg, "--remote-port", str(port), "--no-warnings"]
+    if delay_ms is not None:
+        cmd += ["--delay", str(delay_ms)]
+    if gui_settings is not None:
+        cmd += ["--gui-settings-file", str(gui_settings)]
     print(f"[run.py] starting: {' '.join(cmd)} (cwd={workdir})")
     with log_path.open("w") as logf:
         proc = subprocess.Popen(
@@ -90,6 +109,40 @@ def launch_sumo(workdir: Path, cfg: str, log_path: Path, sumo_bin: str):
             stderr=subprocess.STDOUT,
         )
     return proc, port
+
+
+def gui_delay_ms() -> int:
+    env = os.environ.get("GUI_STEP_DELAY", "")
+    if env:
+        return max(0, int(float(env) * 1000))
+    return int(GUI_STEP_DELAY * 1000)
+
+
+def gui_zoom() -> float:
+    env = os.environ.get("GUI_ZOOM", "")
+    if env:
+        return max(1.0, float(env))
+    return float(GUI_ZOOM)
+
+
+def gui_follow_enabled() -> bool:
+    return os.environ.get("GUI_FOLLOW", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+        "",
+    )
+
+
+def gui_settings_default(workdir: Path | None = None) -> Path | None:
+    """Prefer a per-scenario view settings file, then the repo-level one."""
+    if workdir is not None:
+        local = Path(workdir) / "gui.settings.xml"
+        if local.is_file():
+            return local
+    path = REPO_ROOT / "sim" / "gui.settings.xml"
+    return path if path.is_file() else None
 
 
 def stop_proc(proc) -> None:
@@ -107,13 +160,31 @@ def run_smoke(
     cfg: str,
     steps: int,
     sumo_bin: str,
+    gui: bool = False,
+    gui_settings: Path | None = None,
 ) -> None:
     workdir = Path(workdir)
     cfg_path = workdir / cfg
     if not cfg_path.is_file():
         raise FileNotFoundError(f"config not found: {cfg_path}")
+    delay_ms = None
+    if gui:
+        sumo_bin = resolve_sumo_bin(None, gui=True)
+        delay_ms = gui_delay_ms()
+        gui_settings = gui_settings or gui_settings_default(workdir)
+        print(
+            f"[run.py] GUI mode: sumo-gui delay={delay_ms} ms "
+            f"(set via GUI_STEP_DELAY in seconds or run.py constant)"
+        )
 
-    proc, port = launch_sumo(workdir, cfg, workdir / "run.log", sumo_bin)
+    proc, port = launch_sumo(
+        workdir,
+        cfg,
+        workdir / "run.log",
+        sumo_bin,
+        delay_ms=delay_ms,
+        gui_settings=gui_settings,
+    )
 
     sim_time = 0.0
     veh_counts: list[int] = []
@@ -133,7 +204,9 @@ def run_smoke(
     max_vehicles = max(veh_counts) if veh_counts else 0
     print(f"[run.py] {traci_version_info}", end="")
     print(f"[run.py] simulated steps={steps} end_time={sim_time:.0f}s")
-    print(f"[run.py] vehicles on net: max={max_vehicles} at_step={veh_counts.index(max_vehicles)}")
+    print(
+        f"[run.py] vehicles on net: max={max_vehicles} at_step={veh_counts.index(max_vehicles)}"
+    )
 
     if sim_time < steps:
         raise RuntimeError(f"sim ended early at {sim_time}s before {steps} steps")
@@ -145,20 +218,33 @@ def run_smoke(
 # Baseline (R=0) telemetry
 # --------------------------------------------------------------------------
 
+
 def load_ev_route() -> dict:
     if not EV_ROUTE_PATH.is_file():
-        raise FileNotFoundError(f"EV route not found: {EV_ROUTE_PATH} (run sim/scenario.py first)")
+        raise FileNotFoundError(
+            f"EV route not found: {EV_ROUTE_PATH} (run sim/scenario.py first)"
+        )
     return json.loads(EV_ROUTE_PATH.read_text())
 
 
-def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
-                      r: float | None = None, shunt: bool = False,
-                      legacy: bool = True):
+def collect_telemetry(
+    sumo_bin: str,
+    density: str,
+    seed: int,
+    results_dir: Path,
+    r: float | None = None,
+    shunt: bool = False,
+    legacy: bool = True,
+    gui: bool = False,
+    gui_settings: Path | None = None,
+):
     cfg = f"corridor.{density}.{seed}.sumocfg"
     workdir = CORRIDOR_DIR
     cfg_path = workdir / cfg
     if not cfg_path.is_file():
-        raise FileNotFoundError(f"config not found: {cfg_path}; run sim/scenario.py first")
+        raise FileNotFoundError(
+            f"config not found: {cfg_path}; run sim/scenario.py first"
+        )
 
     tag = "R0" if r is None else f"R{format_r(r)}"
     summary_name = "R0_baseline.csv" if r is None else "R_preempt.csv"
@@ -166,12 +252,31 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
     ctl = PreemptionController(r) if r is not None else None
     shunt_ctrl = None
     if r is not None and shunt:
-        shunt_ctrl = LaneClearanceController(r, route["edges"],
-                                             CORRIDOR_DIR / "corridor.net.xml")
+        shunt_ctrl = LaneClearanceController(
+            r, route["edges"], CORRIDOR_DIR / "corridor.net.xml"
+        )
+
+    step_wait = 0.0
+    follow_zoom = None
+    gui_settings = None
+    if gui:
+        sumo_bin = resolve_sumo_bin(None, gui=True)
+        delay_ms = gui_delay_ms()
+        step_wait = delay_ms / 1000.0
+        follow_zoom = gui_zoom() if gui_follow_enabled() else None
+        gui_settings = gui_settings or gui_settings_default(workdir)
+        src = "GUI_STEP_DELAY" if os.environ.get("GUI_STEP_DELAY") else "run.py default"
+        follow_txt = f", following EV at zoom {follow_zoom:g}" if follow_zoom else ""
+        print(
+            f"[run.py] GUI mode: sumo-gui, ~1 step / {delay_ms:g} ms "
+            f"({src}={step_wait:g}s){follow_txt}"
+        )
 
     results_dir.mkdir(parents=True, exist_ok=True)
     log_path = results_dir / f"{tag}_{density}_{seed}.run.log"
-    proc, port = launch_sumo(workdir, cfg, log_path, sumo_bin)
+    proc, port = launch_sumo(
+        workdir, cfg, log_path, sumo_bin, gui_settings=gui_settings
+    )
 
     route_edges = set(route["edges"])
 
@@ -179,6 +284,7 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
     stops: list[dict] = []
     cur_episode: dict | None = None
     first_seen = None
+    following = False
     arrival = None
     sim_time = 0.0
     occ_sum = 0.0
@@ -198,10 +304,14 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
 
         # corridor floor for concurrent-traffic occupancy (forward + reverse partners)
         all_edges = set(traci.edge.getIDList())
-        edge_set = set(route_edges) | {rev for rev in ("-" + e for e in route_edges) if rev in all_edges}
+        edge_set = set(route_edges) | {
+            rev for rev in ("-" + e for e in route_edges) if rev in all_edges
+        }
 
         while True:
             traci.simulationStep()
+            if gui:
+                time.sleep(step_wait)
             sim_time = traci.simulation.getTime()
 
             if ctl is not None:
@@ -216,6 +326,12 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
                 pass
 
             present = EV_ID in traci.vehicle.getIDList()
+            if present and follow_zoom is not None and not following:
+                # keep the narrow view locked on the ambulance once it departs
+                for view in traci.gui.getIDList():
+                    traci.gui.setZoom(view, follow_zoom)
+                    traci.gui.trackVehicle(view, EV_ID)
+                following = True
             if present:
                 if first_seen is None:
                     first_seen = sim_time
@@ -232,15 +348,25 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
                 if nxt is not None:
                     tls_id, tls_dist, tls_state = nxt[0], float(nxt[2]), str(nxt[3])
                 sample = {
-                    "t": sim_time, "speed": speed, "lane": lane, "pos": pos,
-                    "dist": dist, "tls": tls_id, "tls_dist": tls_dist, "tls_state": tls_state,
+                    "t": sim_time,
+                    "speed": speed,
+                    "lane": lane,
+                    "pos": pos,
+                    "dist": dist,
+                    "tls": tls_id,
+                    "tls_dist": tls_dist,
+                    "tls_state": tls_state,
                 }
                 samples.append(sample)
 
                 if speed < STOP_SPEED:
                     if cur_episode is None:
                         cur_episode = {"start": sim_time, "red": False}
-                    if nxt is not None and tls_dist <= RED_DIST and tls_state not in GREEN_STATES:
+                    if (
+                        nxt is not None
+                        and tls_dist <= RED_DIST
+                        and tls_state not in GREEN_STATES
+                    ):
                         cur_episode["red"] = True
                 elif speed > RESUME_SPEED and cur_episode is not None:
                     cur_episode["end"] = sim_time
@@ -272,13 +398,16 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
                 coll_log = []
             shunted = getattr(shunt_ctrl, "shunted_ids", set()) if shunt_ctrl else set()
             caused_by_shunt = any(
-                (getattr(c, "collider", None) in shunted or getattr(c, "victim", None) in shunted)
+                (
+                    getattr(c, "collider", None) in shunted
+                    or getattr(c, "victim", None) in shunted
+                )
                 for c in coll_log
             ) or bool(tele_id_set & shunted)
             print(
                 f"[run.py] collision/teleport warning: {teleports} teleports "
                 f"{[v for v in tele_id_set if v not in shunted]} (shunt-caused={caused_by_shunt}); "
-                f"{len(coll_log)} collisions {[(getattr(c,'time',None), getattr(c,'collider',None), getattr(c,'victim',None)) for c in coll_log]}",
+                f"{len(coll_log)} collisions {[(getattr(c, 'time', None), getattr(c, 'collider', None), getattr(c, 'victim', None)) for c in coll_log]}",
                 file=sys.stderr,
             )
     finally:
@@ -292,29 +421,63 @@ def collect_telemetry(sumo_bin: str, density: str, seed: int, results_dir: Path,
         traci.close()
         stop_proc(proc)
 
-    metrics = summarize(density, seed, route, samples, stops, first_seen, arrival,
-                        arrived_via_traci, occ_sum, occ_n, occ_peak, r=r)
+    metrics = summarize(
+        density,
+        seed,
+        route,
+        samples,
+        stops,
+        first_seen,
+        arrival,
+        arrived_via_traci,
+        occ_sum,
+        occ_n,
+        occ_peak,
+        r=r,
+    )
     metrics["teleports"] = teleports
     metrics["collisions"] = collisions
     if shunt_ctrl is not None:
-        metrics.update({
-            "n_shunt_req": shunt_ctrl.n_req,
-            "n_shunt_done": shunt_ctrl.n_done,
-            "n_shunt_failed": shunt_ctrl.n_failed,
-        })
+        metrics.update(
+            {
+                "n_shunt_req": shunt_ctrl.n_req,
+                "n_shunt_done": shunt_ctrl.n_done,
+                "n_shunt_failed": shunt_ctrl.n_failed,
+            }
+        )
     else:
         metrics.update({"n_shunt_req": 0, "n_shunt_done": 0, "n_shunt_failed": 0})
     if r is not None and math.isinf(r):
         metrics["red_stop_violation"] = 1 if metrics["n_red_stops"] else 0
-    write_results(density, seed, results_dir, samples, metrics,
-                  tag=tag, summary=summary_name, legacy=legacy)
+    write_results(
+        density,
+        seed,
+        results_dir,
+        samples,
+        metrics,
+        tag=tag,
+        summary=summary_name,
+        legacy=legacy,
+    )
     if r is None:
         print_baseline_table(metrics)
     return metrics
 
 
-def summarize(density, seed, route, samples, stops, first_seen, arrival,
-              arrived_via_traci, occ_sum, occ_n, occ_peak, r: float | None = None):
+def summarize(
+    density,
+    seed,
+    route,
+    samples,
+    stops,
+    first_seen,
+    arrival,
+    arrived_via_traci,
+    occ_sum,
+    occ_n,
+    occ_peak,
+    r: float | None = None,
+):
     speeds = [s["speed"] for s in samples]
     mean_speed = sum(speeds) / len(speeds) if speeds else 0.0
     max_speed = max(speeds) if speeds else 0.0
@@ -323,6 +486,7 @@ def summarize(density, seed, route, samples, stops, first_seen, arrival,
     freeflow_s = None
     try:
         import sumolib
+
         net = sumolib.net.readNet(str(CORRIDOR_DIR / "corridor.net.xml"))
         tt = 0.0
         for eid in route["edges"]:
@@ -342,7 +506,9 @@ def summarize(density, seed, route, samples, stops, first_seen, arrival,
         "arrive_s": arrival if arrival is not None else "",
         "travel_time_s": travel_time if travel_time is not None else "",
         "freeflow_s": freeflow_s if freeflow_s is not None else "",
-        "travel_ratio": (travel_time / freeflow_s) if (travel_time and freeflow_s) else "",
+        "travel_ratio": (travel_time / freeflow_s)
+        if (travel_time and freeflow_s)
+        else "",
         "n_stops": len(stops),
         "n_red_stops": sum(1 for s in stops if s["red"]),
         "mean_speed_ms": mean_speed,
@@ -357,8 +523,16 @@ def summarize(density, seed, route, samples, stops, first_seen, arrival,
     return metrics
 
 
-def write_results(density, seed, results_dir, samples, metrics,
-                  tag="R0", summary="R0_baseline.csv", legacy=True) -> None:
+def write_results(
+    density,
+    seed,
+    results_dir,
+    samples,
+    metrics,
+    tag="R0",
+    summary="R0_baseline.csv",
+    legacy=True,
+) -> None:
     profile = results_dir / f"{tag}_{density}_{seed}_profile.csv"
     with profile.open("w", newline="") as f:
         cols = ["t", "speed", "lane", "pos", "dist", "tls", "tls_dist", "tls_state"]
@@ -402,28 +576,47 @@ def print_baseline_table(m) -> None:
     r_label = m.get("r")
     title = (
         f"R={r_label} preemption — {m['density'].upper()} / seed {m['seed']}"
-        if r_label else
-        f"R=0 baseline — {m['density'].upper()} / seed {m['seed']}"
+        if r_label
+        else f"R=0 baseline — {m['density'].upper()} / seed {m['seed']}"
     )
     table = Table(title=title + (" COMPLETED" if m["completed"] else " INCOMPLETE"))
     table.add_column("Metric")
     table.add_column("Value")
-    table.add_row("Travel time", f"{m['travel_time_s']:.1f}s" if m["travel_time_s"] != "" else "n/a")
-    table.add_row("Free-flow estimate", f"{m['freeflow_s']:.1f}s" if m["freeflow_s"] != "" else "n/a")
-    table.add_row("Travel / free-flow", f"{m['travel_ratio']:.2f}x" if m["travel_ratio"] != "" else "n/a")
+    table.add_row(
+        "Travel time",
+        f"{m['travel_time_s']:.1f}s" if m["travel_time_s"] != "" else "n/a",
+    )
+    table.add_row(
+        "Free-flow estimate",
+        f"{m['freeflow_s']:.1f}s" if m["freeflow_s"] != "" else "n/a",
+    )
+    table.add_row(
+        "Travel / free-flow",
+        f"{m['travel_ratio']:.2f}x" if m["travel_ratio"] != "" else "n/a",
+    )
     table.add_row("Stops", str(m["n_stops"]))
     table.add_row("Red stops (at signal)", str(m["n_red_stops"]))
-    table.add_row("Mean speed", f"{m['mean_speed_ms']:.2f} m/s ({m['mean_speed_ms'] * 3.6:.0f} km/h)")
-    table.add_row("Max speed", f"{m['max_speed_ms']:.2f} m/s ({m['max_speed_ms'] * 3.6:.0f} km/h)")
+    table.add_row(
+        "Mean speed",
+        f"{m['mean_speed_ms']:.2f} m/s ({m['mean_speed_ms'] * 3.6:.0f} km/h)",
+    )
+    table.add_row(
+        "Max speed", f"{m['max_speed_ms']:.2f} m/s ({m['max_speed_ms'] * 3.6:.0f} km/h)"
+    )
     table.add_row("Peak speed vs EV cap", f"{m['pct_vmax']:.0f}%")
-    table.add_row("Corridor occupancy (avg/peak)", f"{m['corridor_avg']:.1f} / {m['corridor_peak']}")
+    table.add_row(
+        "Corridor occupancy (avg/peak)",
+        f"{m['corridor_avg']:.1f} / {m['corridor_peak']}",
+    )
     console.print(table)
 
 
-def run_baseline(sumo_bin: str, density: str, seed: int, results_dir: Path):
+def run_baseline(
+    sumo_bin: str, density: str, seed: int, results_dir: Path, gui: bool = False
+):
     console = Console()
     console.print(f"[green]baseline[/green] density={density} seed={seed} link=R=0")
-    collect_telemetry(sumo_bin, density, seed, results_dir)
+    collect_telemetry(sumo_bin, density, seed, results_dir, gui=gui)
 
 
 def load_baseline_travel_time(results_dir: Path, density: str, seed: int):
@@ -465,36 +658,71 @@ def parse_seed_list(text: str) -> list[int]:
 def print_preempt_table(m, baseline_tt) -> None:
     console = Console()
     r = m["r"]
-    table = Table(title=f"R={r} preemption — {m['density'].upper()} / seed {m['seed']}"
-                       + (" COMPLETED" if m["completed"] else " INCOMPLETE"))
+    table = Table(
+        title=f"R={r} preemption — {m['density'].upper()} / seed {m['seed']}"
+        + (" COMPLETED" if m["completed"] else " INCOMPLETE")
+    )
     table.add_column("Metric")
     table.add_column("Value")
-    table.add_row("Travel time", f"{m['travel_time_s']:.1f}s" if m["travel_time_s"] != "" else "n/a")
+    table.add_row(
+        "Travel time",
+        f"{m['travel_time_s']:.1f}s" if m["travel_time_s"] != "" else "n/a",
+    )
     if baseline_tt is not None:
-        saved = f"{baseline_tt - m['travel_time_s']:.1f}s" if m["travel_time_s"] != "" else "n/a"
+        saved = (
+            f"{baseline_tt - m['travel_time_s']:.1f}s"
+            if m["travel_time_s"] != ""
+            else "n/a"
+        )
         table.add_row("vs R=0 baseline (saved)", f"{saved} (base {baseline_tt:.1f}s)")
     if baseline_tt is not None and m["travel_time_s"] != "" and baseline_tt:
-        table.add_row("Fraction of baseline", f"{m['travel_time_s'] / baseline_tt:.2f}x")
+        table.add_row(
+            "Fraction of baseline", f"{m['travel_time_s'] / baseline_tt:.2f}x"
+        )
     if "n_shunt_req" in m:
-        table.add_row("Shunts (req/done/fail)",
-                      f"{m['n_shunt_req']} / {m['n_shunt_done']} / {m['n_shunt_failed']}")
+        table.add_row(
+            "Shunts (req/done/fail)",
+            f"{m['n_shunt_req']} / {m['n_shunt_done']} / {m['n_shunt_failed']}",
+        )
     if "teleports" in m:
         table.add_row("Teleports / collisions", f"{m['teleports']} / {m['collisions']}")
-    table.add_row("Free-flow estimate", f"{m['freeflow_s']:.1f}s" if m["freeflow_s"] != "" else "n/a")
+    table.add_row(
+        "Free-flow estimate",
+        f"{m['freeflow_s']:.1f}s" if m["freeflow_s"] != "" else "n/a",
+    )
     table.add_row("Stops", str(m["n_stops"]))
     table.add_row("Red stops (at signal)", str(m["n_red_stops"]))
-    table.add_row("Mean speed", f"{m['mean_speed_ms']:.2f} m/s ({m['mean_speed_ms'] * 3.6:.0f} km/h)")
-    table.add_row("Max speed", f"{m['max_speed_ms']:.2f} m/s ({m['max_speed_ms'] * 3.6:.0f} km/h)")
-    table.add_row("Corridor occupancy (avg/peak)", f"{m['corridor_avg']:.1f} / {m['corridor_peak']}")
+    table.add_row(
+        "Mean speed",
+        f"{m['mean_speed_ms']:.2f} m/s ({m['mean_speed_ms'] * 3.6:.0f} km/h)",
+    )
+    table.add_row(
+        "Max speed", f"{m['max_speed_ms']:.2f} m/s ({m['max_speed_ms'] * 3.6:.0f} km/h)"
+    )
+    table.add_row(
+        "Corridor occupancy (avg/peak)",
+        f"{m['corridor_avg']:.1f} / {m['corridor_peak']}",
+    )
     console.print(table)
 
 
-def run_preempt(sumo_bin: str, density: str, seed: int, r: float, results_dir: Path,
-                shunt: bool = True):
+def run_preempt(
+    sumo_bin: str,
+    density: str,
+    seed: int,
+    r: float,
+    results_dir: Path,
+    shunt: bool = True,
+    gui: bool = False,
+):
     console = Console()
     mode = "+shunt" if shunt else "preempt-only"
-    console.print(f"[green]{mode}[/green] density={density} seed={seed} R={format_r(r)}m")
-    metrics = collect_telemetry(sumo_bin, density, seed, results_dir, r=r, shunt=shunt)
+    console.print(
+        f"[green]{mode}[/green] density={density} seed={seed} R={format_r(r)}m"
+    )
+    metrics = collect_telemetry(
+        sumo_bin, density, seed, results_dir, r=r, shunt=shunt, gui=gui
+    )
     if math.isinf(r) and metrics["n_red_stops"] != 0:
         raise AssertionError(
             f"R=inf demo failed: {metrics['n_red_stops']} red stops at signal "
@@ -513,24 +741,43 @@ def run_preempt(sumo_bin: str, density: str, seed: int, r: float, results_dir: P
 R_MATRIX: list[float] = [0.0, 50.0, 200.0, 500.0, math.inf]
 DENSITY_MATRIX: list[str] = ["low", "med", "high"]
 BATCH_COLUMNS = [
-    "r", "density", "seed", "depart_s", "arrive_s", "travel_time_s", "freeflow_s",
-    "travel_ratio", "n_stops", "n_red_stops", "mean_speed_ms", "max_speed_ms",
-    "pct_vmax", "corridor_avg", "corridor_peak", "completed",
-    "teleports", "collisions", "n_shunt_req", "n_shunt_done", "n_shunt_failed",
+    "r",
+    "density",
+    "seed",
+    "depart_s",
+    "arrive_s",
+    "travel_time_s",
+    "freeflow_s",
+    "travel_ratio",
+    "n_stops",
+    "n_red_stops",
+    "mean_speed_ms",
+    "max_speed_ms",
+    "pct_vmax",
+    "corridor_avg",
+    "corridor_peak",
+    "completed",
+    "teleports",
+    "collisions",
+    "n_shunt_req",
+    "n_shunt_done",
+    "n_shunt_failed",
     "red_stop_violation",
 ]
 
 
-def run_cell(sumo_bin: str, density: str, seed: int, r: float,
-             results_dir: Path) -> dict:
+def run_cell(
+    sumo_bin: str, density: str, seed: int, r: float, results_dir: Path
+) -> dict:
     """Run one (R, congestion, seed) cell; returns its metrics dict (raises on error).
 
     R=0 cells run the unified telemetry with no preemption and no shunt, which
     reproduces the R=0 baseline exactly while keeping a uniform row schema.
     """
     shunt = r is not None and r > 0
-    metrics = collect_telemetry(sumo_bin, density, seed, results_dir,
-                                r=r, shunt=shunt, legacy=False)
+    metrics = collect_telemetry(
+        sumo_bin, density, seed, results_dir, r=r, shunt=shunt, legacy=False
+    )
     return metrics
 
 
@@ -556,16 +803,25 @@ def batch_cells_done(path: Path) -> set[tuple[str, str, str]]:
     return done
 
 
-def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
-              seeds: list[int], results_dir: Path, parallel: int = 4,
-              resume: bool = True, force_scenarios: bool = False) -> int:
+def run_batch(
+    sumo_bin: str,
+    densities: list[str],
+    r_values: list[float],
+    seeds: list[int],
+    results_dir: Path,
+    parallel: int = 4,
+    resume: bool = True,
+    force_scenarios: bool = False,
+) -> int:
     results_path = results_dir / "results.csv"
     console = Console()
 
     built = build_many(densities, seeds, force=force_scenarios)
     if built:
-        console.print(f"[green]batch[/green] built {len(built)} missing scenario configs: "
-                      + ", ".join(f"{d}/{s}" for d, s in built))
+        console.print(
+            f"[green]batch[/green] built {len(built)} missing scenario configs: "
+            + ", ".join(f"{d}/{s}" for d, s in built)
+        )
     else:
         console.print("[green]batch[/green] all scenario configs already present")
 
@@ -573,8 +829,10 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
     if resume:
         done = batch_cells_done(results_path)
         pending = [c for c in cells if (format_r(c[0]), c[1], str(c[2])) not in done]
-        console.print(f"[green]batch[/green] matrix={len(cells)} cells, "
-                      f"{len(pending)} pending ({len(done)} already completed; resume=on)")
+        console.print(
+            f"[green]batch[/green] matrix={len(cells)} cells, "
+            f"{len(pending)} pending ({len(done)} already completed; resume=on)"
+        )
         cells = pending
     else:
         console.print(f"[green]batch[/green] matrix={len(cells)} cells (resume=off)")
@@ -586,8 +844,10 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
     failures: list[tuple] = []
     red_violations = 0
     completed_failed = 0
-    console.print(f"[green]batch[/green] running {len(cells)} cells "
-                  f"(parallel={parallel}) -> {results_path}")
+    console.print(
+        f"[green]batch[/green] running {len(cells)} cells "
+        f"(parallel={parallel}) -> {results_path}"
+    )
 
     args = [(sumo_bin, d, s, r, results_dir) for r, d, s in cells]
     if parallel > 1:
@@ -599,8 +859,10 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
                     metrics = fut.result()
                 except Exception as exc:
                     failures.append((r, d, s, repr(exc)))
-                    print(f"[run.py] FAILED cell R{format_r(r)} {d}/{s}: {exc}",
-                          file=sys.stderr)
+                    print(
+                        f"[run.py] FAILED cell R{format_r(r)} {d}/{s}: {exc}",
+                        file=sys.stderr,
+                    )
                     continue
                 if not metrics.get("completed"):
                     completed_failed += 1
@@ -613,8 +875,10 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
                 metrics = run_cell(sumo_bin, d, s, r, results_dir)
             except Exception as exc:
                 failures.append((r, d, s, repr(exc)))
-                print(f"[run.py] FAILED cell R{format_r(r)} {d}/{s}: {exc}",
-                      file=sys.stderr)
+                print(
+                    f"[run.py] FAILED cell R{format_r(r)} {d}/{s}: {exc}",
+                    file=sys.stderr,
+                )
                 continue
             if not metrics.get("completed"):
                 completed_failed += 1
@@ -622,10 +886,12 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
                 red_violations += 1
             append_batch_row(results_path, metrics)
 
-    console.print("[green]batch[/green] done: "
-                  f"{len(cells) - len(failures)} rows written, "
-                  f"{len(failures)} failed, {completed_failed} incomplete arrivals, "
-                  f"{red_violations} R=inf red-stop violations")
+    console.print(
+        "[green]batch[/green] done: "
+        f"{len(cells) - len(failures)} rows written, "
+        f"{len(failures)} failed, {completed_failed} incomplete arrivals, "
+        f"{red_violations} R=inf red-stop violations"
+    )
     for r, d, s, err in failures:
         console.print(f"  [red]FAILED[/red] R{format_r(r)} {d}/{s}: {err}")
     return 1 if (failures or red_violations) else 0
@@ -635,55 +901,121 @@ def run_batch(sumo_bin: str, densities: list[str], r_values: list[float],
 # CLI
 # --------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="amroute SUMO runners (smoke + R=0 baseline + R preemption)")
-    ap.add_argument("--sumo-bin", default=None, help="sumo binary (default: SUMO_BIN env, then sim/vendor/bin)")
+    ap = argparse.ArgumentParser(
+        description="amroute SUMO runners (smoke + R=0 baseline + R preemption)"
+    )
+    ap.add_argument(
+        "--sumo-bin",
+        default=None,
+        help="sumo binary (default: SUMO_BIN env, then sim/vendor/bin)",
+    )
     sub = ap.add_subparsers(dest="command")
 
     p_smoke = sub.add_parser("smoke", help="existing headless smoke test")
-    p_smoke.add_argument("--steps", type=int, default=DEFAULT_STEPS, help=f"sim steps (default {DEFAULT_STEPS})")
-    p_smoke.add_argument("--cfg", default=DEFAULT_CFG, help=f"config in workdir (default {DEFAULT_CFG})")
-    p_smoke.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR, help="directory with sumo cfg")
+    p_smoke.add_argument(
+        "--steps",
+        type=int,
+        default=DEFAULT_STEPS,
+        help=f"sim steps (default {DEFAULT_STEPS})",
+    )
+    p_smoke.add_argument(
+        "--cfg", default=DEFAULT_CFG, help=f"config in workdir (default {DEFAULT_CFG})"
+    )
+    p_smoke.add_argument(
+        "--workdir", type=Path, default=DEFAULT_WORKDIR, help="directory with sumo cfg"
+    )
+    p_smoke.add_argument(
+        "--gui", action="store_true", help="watch in sumo-gui instead of headless"
+    )
 
     p_base = sub.add_parser("baseline", help="headless R=0 baseline with EV telemetry")
     p_base.add_argument("--density", choices=["low", "med", "high"], required=True)
     p_base.add_argument("--seed", type=int, default=1)
     p_base.add_argument("--results", type=Path, default=RESULTS_DIR, help="results dir")
+    p_base.add_argument(
+        "--gui", action="store_true", help="watch in sumo-gui instead of headless"
+    )
 
-    p_pre = sub.add_parser("preempt", help="signal-preemption run (knob R); --r inf = full corridor")
+    p_pre = sub.add_parser(
+        "preempt", help="signal-preemption run (knob R); --r inf = full corridor"
+    )
     p_pre.add_argument("--density", choices=["low", "med", "high"], required=True)
     p_pre.add_argument("--seed", type=int, default=1)
-    p_pre.add_argument("--r", default="200", help="detection range R in meters (number or 'inf')")
-    p_pre.add_argument("--no-shunt", action="store_false", dest="shunt", default=True,
-                       help="disable the lane-clearance shunt (default: enabled)")
+    p_pre.add_argument(
+        "--r", default="200", help="detection range R in meters (number or 'inf')"
+    )
+    p_pre.add_argument(
+        "--no-shunt",
+        action="store_false",
+        dest="shunt",
+        default=True,
+        help="disable the lane-clearance shunt (default: enabled)",
+    )
     p_pre.add_argument("--results", type=Path, default=RESULTS_DIR, help="results dir")
+    p_pre.add_argument(
+        "--gui", action="store_true", help="watch in sumo-gui instead of headless"
+    )
 
     p_batch = sub.add_parser(
-        "batch", help="run the R x congestion x seed experiment matrix -> results.csv")
-    p_batch.add_argument("--density", default=",".join(DENSITY_MATRIX),
-                         help=f"comma-separated densities (default: {','.join(DENSITY_MATRIX)})")
-    p_batch.add_argument("--r", default=",".join(format_r(v) for v in R_MATRIX),
-                         help=f"comma-separated R meters or 'inf' (default: {','.join(format_r(v) for v in R_MATRIX)})")
-    p_batch.add_argument("--seeds", default="1-10",
-                         help="seeds, e.g. '1', '1,2,3' or '1-10' (default: 1-10)")
-    p_batch.add_argument("--parallel", type=int, default=4,
-                         help="concurrent sumo processes (default 4; 1 = sequential)")
-    p_batch.add_argument("--no-resume", action="store_false", dest="resume", default=True,
-                         help="rerun cells already present in results.csv (default: skip them)")
-    p_batch.add_argument("--force-scenarios", action="store_true",
-                         help="rebuild (density, seed) scenarios even if cached")
-    p_batch.add_argument("--results", type=Path, default=RESULTS_DIR, help="results dir")
+        "batch", help="run the R x congestion x seed experiment matrix -> results.csv"
+    )
+    p_batch.add_argument(
+        "--density",
+        default=",".join(DENSITY_MATRIX),
+        help=f"comma-separated densities (default: {','.join(DENSITY_MATRIX)})",
+    )
+    p_batch.add_argument(
+        "--r",
+        default=",".join(format_r(v) for v in R_MATRIX),
+        help=f"comma-separated R meters or 'inf' (default: {','.join(format_r(v) for v in R_MATRIX)})",
+    )
+    p_batch.add_argument(
+        "--seeds",
+        default="1-10",
+        help="seeds, e.g. '1', '1,2,3' or '1-10' (default: 1-10)",
+    )
+    p_batch.add_argument(
+        "--parallel",
+        type=int,
+        default=4,
+        help="concurrent sumo processes (default 4; 1 = sequential)",
+    )
+    p_batch.add_argument(
+        "--no-resume",
+        action="store_false",
+        dest="resume",
+        default=True,
+        help="rerun cells already present in results.csv (default: skip them)",
+    )
+    p_batch.add_argument(
+        "--force-scenarios",
+        action="store_true",
+        help="rebuild (density, seed) scenarios even if cached",
+    )
+    p_batch.add_argument(
+        "--results", type=Path, default=RESULTS_DIR, help="results dir"
+    )
 
     args = ap.parse_args(argv)
-    sumo_bin = resolve_sumo_bin(args.sumo_bin or None)
+    gui = getattr(args, "gui", False)
+    sumo_bin = resolve_sumo_bin(args.sumo_bin or None, gui=gui)
     try:
         if args.command == "smoke":
-            run_smoke(args.workdir, args.cfg, args.steps, sumo_bin)
+            run_smoke(args.workdir, args.cfg, args.steps, sumo_bin, gui=gui)
         elif args.command == "baseline":
-            run_baseline(sumo_bin, args.density, args.seed, args.results)
+            run_baseline(sumo_bin, args.density, args.seed, args.results, gui=gui)
         elif args.command == "preempt":
-            run_preempt(sumo_bin, args.density, args.seed, parse_r(args.r),
-                        args.results, shunt=args.shunt)
+            run_preempt(
+                sumo_bin,
+                args.density,
+                args.seed,
+                parse_r(args.r),
+                args.results,
+                shunt=args.shunt,
+                gui=gui,
+            )
         elif args.command == "batch":
             return run_batch(
                 sumo_bin,

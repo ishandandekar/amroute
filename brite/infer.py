@@ -1,4 +1,5 @@
 import time
+
 from ultralytics import YOLO
 
 # Load a model

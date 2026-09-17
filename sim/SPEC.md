@@ -106,6 +106,24 @@ sim/
    a version mismatch fails on connect).
 4. Smoke test: `traci.connect` a minimal `sumo --remote-port` session.
 
+Binaries are flatpak-wrapped in `sim/vendor/bin/` (`sumo`, `sumo-gui`, `netconvert`, `duarouter`);
+`run.py` resolves them automatically (override with `--sumo-bin` or `SUMO_BIN`).
+
+### Watching a run (sumo-gui)
+
+- **Traffic only, no control** — `sim/vendor/bin/sumo-gui -c sim/corridor/corridor.low.1.sumocfg`
+  (or `smoke.sumocfg`). Plays autonomously; signals run normally and the preemption/shunt control
+  is *not* active (it lives in `control.py`, driven over TraCI).
+- **A real green-corridor run** — `uv run python sim/run.py preempt --density low --seed 1 --r 200
+  --gui` (also works on `baseline`/`smoke`). Launches `sumo-gui`, drives it over TraCI, and slows
+  stepping to `GUI_STEP_DELAY` seconds per step (default 0.1 s ≈ 10 steps/s; e.g.
+  `export GUI_STEP_DELAY=0.9` gives a step roughly every second). Corridor runs load
+  `sim/corridor/gui.settings.xml`, which starts on a ~650 m window around the EV's origin and
+  then follows the ambulance (`traci.gui.trackVehicle`) so the narrow camera stays on it; zoom
+  with `GUI_ZOOM` (default 500, 100 = whole net) and set `GUI_FOLLOW=0` for a static view. The
+  ambulance is drawn red so it is easy to pick out. R=0 (`baseline`) shows the no-intervention
+  case for comparison; `--r inf` shows the ceiling.
+
 ## Corridor (M1)
 
 Chosen study corridor (issue #2). Candidates were auto-detected from the Bombay region net `mumbai.net.xml`; the corridor net was cropped to ~5 km² around the pick.

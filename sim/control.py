@@ -100,9 +100,16 @@ class LaneClearanceController:
     using). Nothing behind the EV or on the opposite carriageway is touched.
     """
 
-    def __init__(self, r: float, route_edges: list[str], net_path,
-                 shunt_speed: float = 10.0, grace: float = 2.0,
-                 change_dur: float = 0.5, hard_window: float = 80.0) -> None:
+    def __init__(
+        self,
+        r: float,
+        route_edges: list[str],
+        net_path,
+        shunt_speed: float = 10.0,
+        grace: float = 2.0,
+        change_dur: float = 0.5,
+        hard_window: float = 80.0,
+    ) -> None:
         self.r = float(r)
         self.shunt_speed = shunt_speed
         self.grace = grace
@@ -125,9 +132,9 @@ class LaneClearanceController:
         self._cum = cum
         self._ev_dist: float | None = None
         self._ev_lane = 0
-        self._pending: dict[str, float] = {}     # veh -> time of last request
-        self._orig_mode: dict[str, int] = {}     # veh -> LC mode before urgent
-        self._stopped: dict[str, float] = {}     # veh -> when hard-shoved at v=0
+        self._pending: dict[str, float] = {}  # veh -> time of last request
+        self._orig_mode: dict[str, int] = {}  # veh -> LC mode before urgent
+        self._stopped: dict[str, float] = {}  # veh -> when hard-shoved at v=0
         # telemetry counters
         self.n_req = 0
         self.n_done = 0
@@ -202,7 +209,9 @@ class LaneClearanceController:
             self._orig_mode[veh] = orig
             self._pending[veh] = now
             try:
-                traci.vehicle.setLaneChangeMode(veh, orig | LCA_URGENT | LCA_COOPERATIVE)
+                traci.vehicle.setLaneChangeMode(
+                    veh, orig | LCA_URGENT | LCA_COOPERATIVE
+                )
                 traci.vehicle.changeLane(veh, target, self.change_dur)
             except traci.TraCIException:
                 pass
@@ -219,8 +228,12 @@ class LaneClearanceController:
             tgt_lane = f"{edge}_{target}"
             lane_len = traci.lane.getLength(tgt_lane)
             pos = traci.vehicle.getLanePosition(veh)
-            spot = self._free_spot(tgt_lane, pos, traci.vehicle.getLength(veh),
-                                   max_scan=min(60.0, lane_len))
+            spot = self._free_spot(
+                tgt_lane,
+                pos,
+                traci.vehicle.getLength(veh),
+                max_scan=min(60.0, lane_len),
+            )
             if spot is None:
                 self.n_failed += 1
             else:
@@ -246,8 +259,9 @@ class LaneClearanceController:
                 self._stopped.pop(veh, None)
 
     @staticmethod
-    def _free_spot(lane_id: str, pos: float, veh_len: float,
-                   max_scan: float = 60.0) -> float | None:
+    def _free_spot(
+        lane_id: str, pos: float, veh_len: float, max_scan: float = 60.0
+    ) -> float | None:
         """Nearest free slot (>= current pos) on a lane, or None past max_scan."""
         occ = []
         for vid in traci.lane.getLastStepVehicleIDs(lane_id):
@@ -273,8 +287,10 @@ class LaneClearanceController:
         # drop bookkeeping for targets that already left the EV's lane or sim
         for veh in list(self._pending):
             try:
-                on_lane = veh in traci.vehicle.getIDList() and \
-                    traci.vehicle.getLaneIndex(veh) == self._ev_lane
+                on_lane = (
+                    veh in traci.vehicle.getIDList()
+                    and traci.vehicle.getLaneIndex(veh) == self._ev_lane
+                )
             except traci.TraCIException:
                 on_lane = False
             if not on_lane:

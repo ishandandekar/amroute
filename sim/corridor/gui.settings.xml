@@ -1,0 +1,11 @@
+<!-- sumo-gui view settings for the corridor runs (loaded via --gui-settings-file).
+     Tighter default view than the whole 2.75 km net: zoom=500 frames ~650 m of the
+     corridor, centred on the EV route shortly after its origin edge (257804750#0).
+     run.py then follows the EV ("ev") over TraCI once it departs, so the narrow
+     camera stays on the ambulance; set GUI_FOLLOW=0 to keep this static view and
+     GUI_ZOOM to change the tracking zoom (100 = whole network fits). -->
+<viewsettings>
+    <scheme name="real world"/>
+    <viewport zoom="500" x="260.00" y="545.00" angle="0.00"/>
+    <delay value="0"/>
+</viewsettings>
