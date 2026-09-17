@@ -45,13 +45,38 @@ real detector's finite audible footprint (≈<200 m in a noisy city).
 
 ## Lane clearance (mechanic)
 
-When the EV enters the preemption zone, a TraCI loop moves the blocking vehicles ahead of it out
-of the lane (shoulder / adjacent lane where possible), approximating "cars pull over." This is
-required for the EV to actually benefit — preemption alone doesn't help if the lane stays queued.
+Implemented as `LaneClearanceController` in `sim/control.py` (the green-corridor control
+lives in `control.py`, not the `traci_loop.py` sketched in the original layout), composed
+with the preemption trigger and active for every R>0 run (shunt is ON by default for
+`run.py preempt`; `--no-shunt` disables it).
 
-Open question: how the shunt behaves on a congested multi-lane arterial (could block crossing
-edges, cascade into surrounding cells). This is where (C) gets proven or falsified — test early
-in a GUI run before scaling.
+While the EV is on its route, a control step (0.5 s) finds the slow vehicles — slower than
+a cutoff, on the lane the EV currently drives, ahead of it along the route, within R meters
+of route distance — and moves them to the adjacent same-direction lane:
+
+- preferred: a single safe (urgent/cooperative) `changeLane` into the adjacent lane;
+- fallback after a short grace: a hard `moveTo` into a *free slot* of the adjacent lane
+  (never an occupied spot), with the shunted car held at v=0 for a few seconds like a
+  pulled-over vehicle, then released — so the queued lane physically empties ahead of the
+  ambulance without rear-ending the adjacent lane's traffic.
+
+Scoping: the target set is built only from the EV's route edges, only ahead of the EV,
+and only within R — nothing off-route, on the opposite carriageway, or behind the EV is
+ever touched, which preserves the "does not clear the whole net" property. Because the
+drained lane is the EV's *current* lane and the corridor has exactly 2 facing lanes
+everywhere on the route, the mechanic is that cars pull over onto the lane the ambulance
+is not using; when the EV changes lanes (e.g. into a turn pocket) the drained lane moves
+with it. Telemetry: `n_shunt_req` / `n_shunt_done` / `n_shunt_failed`, plus run-level
+`teleports` / `collisions` counters used as the repeat-run robustness gate (target: zero
+shunt-attributable teleports/collisions).
+
+Residuals: a short junction-box stall remains on one congested mid-route node (the EV
+waits out cross-traffic in the box even with its approach lane empty); it predates the
+shunt (same spot, same duration class in preempt-only runs) and is not shunt-caused.
+At small R (e.g. 50 m) the hard-shove frequently finds no deposit slot — the adjacent
+lane within the zone is itself queued — so failures rise (\(\approx\) 75% of requests) and
+the EV keeps its stall; the shunt only pays off where the neighbour lane has room, which
+at these densities is from roughly R=200 upward.
 
 ## Directory layout
 
@@ -63,7 +88,7 @@ sim/
   SPEC.md               # this file
   corridor.py           # bbox-crop (pyosmium), netconvert, auto-pick corridor candidate
   scenario.py           # background flows (density knob), EV route, .sumo.cfg
-  traci_loop.py         # green-corridor control: preemption trigger (R) + lane-clearance
+  control.py           # green-corridor control: preemption trigger (R) + lane-clearance
   run.py                # batch runner over the matrix x seeds (headless)
   analyze.py            # aggregate runs -> results.csv, tables, plots
   results/              # per-run logs, results, plots
@@ -111,10 +136,26 @@ Alternatives (kept, auto-detected):
 1. **M1 — Corridor:** bbox-crop Bombay `.pbf` -> netconvert -> `.net.xml`; auto-pick 3 candidate
    corridors (arterial + >=4 signalized intersections), pick one with the user. **Done** — LBS Marg
    corridor, see [Corridor (M1)](#corridor-m1).
-2. **M2 — Baseline runs:** background flows + 1 fixed EV, R=0; verify travel-time measurement.
+2. **M2 — Baseline runs:** background flows + 1 fixed EV, R=0; verify travel-time measurement. **Done** — see `sim/results/R0_baseline.csv`.
 3. **M3 — Green corridor:** preemption trigger (R) + lane clearance; verify the EV never stops
-   mid-corridor and TLCs hold green. Risk item: shunt behavior on a 4-lane arterial.
+   mid-corridor and TLCs hold green. **Done** — signal preemption (`control.py` `PreemptionController`)
+   and lane clearance (`control.py` `LaneClearanceController`, see [Lane clearance](#lane-clearance-mechanic)).
+   Risk item on the 2-lane corridor resolved: cars pull over onto the facing lane the EV is not using;
+   no shunt-attributable teleports/collisions on repeat high-congestion runs.
 4. **M4 — Batch run:** 150-run matrix with paired seeds.
+   **Done** — `run.py batch` runs the full R ∈ {0,50,200,500,∞} × congestion {low,med,high}
+   × seeds 1–10 matrix headless: auto-builds missing `(density, seed)` scenarios (seed-1
+   files reused; randomTrips is seed-deterministic), runs cells in parallel
+   (`--parallel 4` default), per-cell failure containment, `--resume` skips completed
+   cells (crash-safe relaunch), and appends one uniform row per cell to a single
+   `sim/results/results.csv`. Pairedness is structural: background traffic depends only on
+   `(density, seed)` while the EV route/departure are fixed, so every R cell of a seed
+   sees the identical traffic. R=0 uses the unified telemetry path (no preemption, no
+   shunt), so baseline rows share the full schema including `teleports/collisions/n_shunt_*`;
+   R=∞ rows carry `red_stop_violation`. Single-run `baseline`/`preempt` commands still write
+   the legacy `R0_baseline.csv` / `R_preempt.csv`, which the batch leaves untouched.
+   Verified on smoke subsets (schema, determinism via identical reruns, resume, med/high
+   completion); full 150-row run reproducible with `uv run python sim/run.py batch`.
 5. **M5 — Analysis:** travel time vs R per congestion, seconds saved, % of ceiling, plots.
 
 ## Risks / unknowns

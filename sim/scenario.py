@@ -157,7 +157,7 @@ def tweak_background_rou(rou_path: Path) -> int:
 
 
 def gen_background(density: str, seed: int, period: float,
-                   begin: float, end: float) -> Path:
+                   begin: float, end: float, quiet: bool = False) -> Path:
     """Run randomTrips.py -> duarouter for a density level; return bg route path."""
     randomtrips, duarouter = resolve_tools()
     trips = CORRIDOR_DIR / f"bg.{density}.{seed}.trips.xml"
@@ -182,11 +182,12 @@ def gen_background(density: str, seed: int, period: float,
         "--trip-attributes", 'departLane="best"',
         "--remove-loops",
     ]
-    Console().print(f"[green]randomTrips[/green] density={density} seed={seed} period={period}s "
-                    f"(cwd={CORRIDOR_DIR.name})")
+    if not quiet:
+        Console().print(f"[green]randomTrips[/green] density={density} seed={seed} period={period}s "
+                        f"(cwd={CORRIDOR_DIR.name})")
     proc = subprocess.run(cmd, cwd=CORRIDOR_DIR, env=env, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if proc.stdout:
+    if proc.stdout and not quiet:
         print(proc.stdout)
     if proc.returncode != 0:
         raise SystemExit(f"randomTrips failed (rc={proc.returncode})")
@@ -255,7 +256,7 @@ def summary(density: str, seed: int, period: float, bg_rou: Path, ev_edges: List
 
 
 def build(density: str, seed: int, period: Optional[float],
-          begin: float, end: float, ev_depart: float) -> None:
+          begin: float, end: float, ev_depart: float, quiet: bool = False) -> None:
     if density not in DENSITY_PERIOD:
         raise SystemExit(f"density must be one of {DENSITY_HELP}")
     eff_period = DENSITY_PERIOD[density] if period is None else period
@@ -263,12 +264,50 @@ def build(density: str, seed: int, period: Optional[float],
     CORRIDOR_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     ev_edges, _ = build_ev_route()
-    bg_rou = gen_background(density, seed, eff_period, begin, end)
+    bg_rou = gen_background(density, seed, eff_period, begin, end, quiet=quiet)
     ev_rou = write_ev_rou(ev_edges, ev_depart)
     cfg = write_cfg(density, seed, bg_rou, ev_rou, begin, end)
-    summary(density, seed, eff_period, bg_rou, ev_edges, begin, end, ev_depart)
-    Console().print(f"[green]scenario[/green] run with: "
-                    f"{sys.executable} sim/run.py baseline --density {density} --seed {seed}")
+    if not quiet:
+        summary(density, seed, eff_period, bg_rou, ev_edges, begin, end, ev_depart)
+        Console().print(f"[green]scenario[/green] run with: "
+                        f"{sys.executable} sim/run.py baseline --density {density} --seed {seed}")
+
+
+def build_many(densities: List[str], seeds: List[int], force: bool = False,
+               begin: float = DEFAULT_BEGIN, end: float = DEFAULT_END,
+               ev_depart: float = DEFAULT_EV_DEPART) -> List[Tuple[str, int]]:
+    """Build all (density, seed) scenario configs, skipping existing pairs.
+
+    A pair is considered built when both its .sumocfg and its background route
+    file exist; randomTrips is deterministic in its seed, so a cached file is
+    equivalent to a rebuild. Returns the list of (density, seed) actually built.
+    """
+    built: List[Tuple[str, int]] = []
+    for density in densities:
+        for seed in seeds:
+            cfg = CORRIDOR_DIR / f"corridor.{density}.{seed}.sumocfg"
+            rou = CORRIDOR_DIR / f"bg.{density}.{seed}.rou.xml"
+            if not force and cfg.is_file() and cfg.stat().st_size > 0 \
+                    and rou.is_file() and rou.stat().st_size > 0:
+                continue
+            build(density, seed, None, begin, end, ev_depart, quiet=True)
+            built.append((density, seed))
+    return built
+
+
+def parse_seed_list(text: str) -> List[int]:
+    """Parse '1-10' or '1,2,3' (or a bare int) into a list of seeds."""
+    seeds: List[int] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            seeds.extend(range(int(a), int(b) + 1))
+        else:
+            seeds.append(int(part))
+    return seeds
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -281,14 +320,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--ev-depart", type=float, default=DEFAULT_EV_DEPART,
                     help=f"EV departure time (default {DEFAULT_EV_DEPART:g})")
     ap.add_argument("--all", action="store_true", help="build all three density levels")
+    ap.add_argument("--seeds", default=None,
+                    help="seeds to build, e.g. '1', '1,2,3' or '1-10' (default: --seed)")
     args = ap.parse_args(argv)
     if args.all:
+        seeds = parse_seed_list(args.seeds) if args.seeds else [args.seed]
         for d in ["low", "med", "high"]:
-            build(d, args.seed, None, args.begin, args.end, args.ev_depart)
+            for s in seeds:
+                build(d, s, None, args.begin, args.end, args.ev_depart, quiet=False)
         return 0
     if not args.density:
         ap.error("--density is required unless --all is used")
-    build(args.density, args.seed, args.period, args.begin, args.end, args.ev_depart)
+    if args.seeds:
+        for s in parse_seed_list(args.seeds):
+            build(args.density, s, args.period, args.begin, args.end, args.ev_depart,
+                  quiet=False)
+        return 0
+    build(args.density, args.seed, args.period, args.begin, args.end, args.ev_depart,
+          quiet=False)
     return 0
 
 
