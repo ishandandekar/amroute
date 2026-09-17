@@ -88,10 +88,14 @@ sim/
   SPEC.md               # this file
   corridor.py           # bbox-crop (pyosmium), netconvert, auto-pick corridor candidate
   scenario.py           # background flows (density knob), EV route, .sumo.cfg
-  control.py           # green-corridor control: preemption trigger (R) + lane-clearance
+  control.py            # green-corridor control: preemption trigger (R) + lane-clearance
   run.py                # batch runner over the matrix x seeds (headless)
-  analyze.py            # aggregate runs -> results.csv, tables, plots
-  results/              # per-run logs, results, plots
+  results/              # per-run logs + results.csv for the 150-run matrix
+  analysis/
+    analyze.py          # aggregate results.csv -> aggregated.csv, tables, plots
+    aggregated.csv      # medians + IQR per (R, congestion), completion, paired savings
+    report.md           # M5 written finding (next to this spec)
+    figures/            # tt_vs_r / saved_vs_r / ceiling / completion / grid PNGs
 ```
 
 ## Tooling setup (M0)
@@ -157,6 +161,12 @@ Alternatives (kept, auto-detected):
    Verified on smoke subsets (schema, determinism via identical reruns, resume, med/high
    completion); full 150-row run reproducible with `uv run python sim/run.py batch`.
 5. **M5 — Analysis:** travel time vs R per congestion, seconds saved, % of ceiling, plots.
+   **Done** — `sim/analysis/analyze.py` aggregates `sim/results/results.csv` into medians + IQR
+   per (R, congestion), paired seconds-saved vs R=0, and % of the R=∞ ceiling captured
+   (`sim/analysis/aggregated.csv`; figures in `sim/analysis/figures/`). Written finding:
+   `sim/analysis/report.md` — R ≥ 50 m buys ~55% (~140 s) of response time at all densities,
+   R=200 is the robust completion optimum, and residual gridlocks are junction-box blockages,
+   not shunt artifacts.
 
 ## Risks / unknowns
 
