@@ -16,31 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 from ultralytics import YOLO
 
-
-class Detections:
-    def __init__(self, window: float):
-        self.window = window
-        self.lock = threading.Lock()
-        self.last_siren = 0.0
-        self.last_ambulance = 0.0
-        self.siren_count = 0
-        self.ambulance_count = 0
-
-    def siren_fire(self):
-        with self.lock:
-            self.last_siren = time.monotonic()
-            self.siren_count += 1
-
-    def ambulance_fire(self):
-        with self.lock:
-            self.last_ambulance = time.monotonic()
-            self.ambulance_count += 1
-
-    def fused(self) -> bool:
-        with self.lock:
-            if self.last_siren == 0.0 or self.last_ambulance == 0.0:
-                return False
-            return abs(self.last_siren - self.last_ambulance) <= self.window
+from amroute_core import Detections
 
 
 class VisionDetector:
@@ -214,6 +190,7 @@ class AudioDetector:
         except Exception as exc:
             self.console.print(f"[bold red][audio] failed to init: {exc}[/]")
             p.terminate()
+            self.stop.set()
             return
 
         window_id = 0
@@ -289,10 +266,13 @@ class AudioDetector:
 
 def fusion_monitor(detections, stop, window, fuse_cooldown, console):
     last_fuse = 0.0
+    last_snapshot = None
     while not stop.is_set():
         time.sleep(0.5)
-        if not detections.fused():
+        snapshot = detections.snapshot()
+        if snapshot is None or snapshot == last_snapshot:
             continue
+        last_snapshot = snapshot
         now = time.monotonic()
         if now - last_fuse >= fuse_cooldown:
             last_fuse = now
@@ -307,7 +287,7 @@ def fusion_monitor(detections, stop, window, fuse_cooldown, console):
             )
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="amroute: fused ambulance detection - YOLO vision (brite) + "
         "sireNN audio run simultaneously",
@@ -367,6 +347,17 @@ def parse_args():
     )
 
     fuse = parser.add_argument_group("fusion")
+    mode = fuse.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--audio-only",
+        action="store_true",
+        help="run only sireNN audio detection (no camera or fused alert)",
+    )
+    mode.add_argument(
+        "--vision-only",
+        action="store_true",
+        help="run only YOLO vision detection (no microphone or fused alert)",
+    )
     fuse.add_argument(
         "--window",
         type=float,
@@ -380,7 +371,31 @@ def parse_args():
         help="seconds between fused alerts",
     )
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def selected_mode(args) -> str:
+    if args.audio_only:
+        return "audio"
+    if args.vision_only:
+        return "vision"
+    return "fused"
+
+
+def validate_model_paths(args, parser_error) -> None:
+    """Fail before opening hardware when a required model is unavailable."""
+    mode = selected_mode(args)
+    missing = []
+    if mode in ("fused", "vision") and not Path(args.model).is_file():
+        missing.append(f"vision model: {args.model}")
+    if mode in ("fused", "audio") and not Path(args.audio_model).is_file():
+        missing.append(f"audio model: {args.audio_model}")
+    if missing:
+        parser_error(
+            "required model file(s) not found:\n  - "
+            + "\n  - ".join(missing)
+            + "\nSee README.md#model-files."
+        )
 
 
 def main():
@@ -390,6 +405,10 @@ def main():
     if args.list_devices:
         sirenn.list_devices_and_exit()
         return
+
+    validate_model_paths(args, lambda message: raise_system_exit(message))
+
+    mode = selected_mode(args)
 
     detections = Detections(args.window)
     stop = threading.Event()
@@ -415,31 +434,46 @@ def main():
         console,
     )
 
+    details = {
+        "fused": f"vision: YOLO on {args.source} | audio: sireNN on mic",
+        "audio": "audio: sireNN on mic",
+        "vision": f"vision: YOLO on {args.source}",
+    }
     console.print(
         Panel.fit(
-            "[bold]amroute[/] - fused ambulance detection\n"
-            f"vision: YOLO on {args.source} | audio: sireNN on mic",
+            f"[bold]amroute[/] - {mode} ambulance detection\n{details[mode]}",
             border_style="cyan",
         )
     )
 
-    t_vision = threading.Thread(target=vision.run, name="vision", daemon=True)
-    t_audio = threading.Thread(target=audio.run, name="audio", daemon=True)
-    t_vision.start()
-    t_audio.start()
+    threads = []
+    if mode in ("fused", "vision"):
+        threads.append(threading.Thread(target=vision.run, name="vision", daemon=True))
+    if mode in ("fused", "audio"):
+        threads.append(threading.Thread(target=audio.run, name="audio", daemon=True))
+    for thread in threads:
+        thread.start()
 
     try:
-        fusion_monitor(detections, stop, args.window, args.fuse_cooldown, console)
+        if mode == "fused":
+            fusion_monitor(detections, stop, args.window, args.fuse_cooldown, console)
+        else:
+            while not stop.wait(0.5):
+                pass
     except KeyboardInterrupt:
         console.print("[yellow]interrupt received, stopping...[/]")
     finally:
         stop.set()
-        t_vision.join(timeout=2)
-        t_audio.join(timeout=2)
+        for thread in threads:
+            thread.join(timeout=2)
         console.print(
             f"[bold]done[/] - audio fires: {detections.siren_count}, "
             f"vision fires: {detections.ambulance_count}"
         )
+
+
+def raise_system_exit(message: str) -> None:
+    raise SystemExit(f"amroute: error: {message}")
 
 
 if __name__ == "__main__":

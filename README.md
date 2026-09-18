@@ -1,74 +1,166 @@
 # Am-Rout
 
-Am-Rout is an experimental project that tries to help ambulances move through traffic faster.
+Am-Rout is a research prototype for measuring how early ambulance detection could
+reduce emergency-vehicle travel time in congested traffic. It combines:
 
-The idea is simple: detect ambulance sirens in real time and use that information to help traffic systems respond quickly. If nearby vehicles or infrastructure can detect a siren early, they can react sooner — clearing the path and reducing response time.
+- **sireNN** — local, real-time ambulance-siren classification;
+- **brite** — YOLO-based visual ambulance detection;
+- **sensor fusion** — confirmation when audio and vision events occur together; and
+- **SUMO simulation** — a reproducible green-corridor experiment using traffic-light
+  preemption and lane clearance.
 
-This project explores how audio detection and simple routing logic could contribute to that goal.
+> [!WARNING]
+> Am-Rout is experimental software. It has not been validated for emergency dispatch,
+> traffic-signal control, or any other safety-critical deployment.
 
-> [!NOTE]
-> This project is an experiment and is not intended for real-world deployment in its current form.
+## Repository map
 
----
+| Path | Purpose |
+| --- | --- |
+| `detection.py` | Runs audio and vision detectors together or independently |
+| `sirenn/` | Audio preprocessing, LSTM training, and live/file inference |
+| `brite/` | YOLO video inference helpers |
+| `sim/` | SUMO scenario generation, corridor control, batch runs, and analysis |
+| `sim/SPEC.md` | Simulation design, assumptions, milestones, and current findings |
+| `scripts/check_setup.py` | Reports missing dependencies, binaries, and model files |
 
-# Why this project exists
+## Requirements
 
-Ambulance response time is one of the most important factors in emergency care. In many cities, traffic congestion delays ambulances even when drivers are willing to give way.
+- Python 3.12
+- [`uv`](https://docs.astral.sh/uv/)
+- A webcam and microphone for live fused detection
+- PortAudio development/runtime libraries for PyAudio
+- Linux plus [Eclipse SUMO](https://sumo.dlr.de/docs/Installing/index.html) for the
+  simulation workflow
 
-The goal of Am-Rout is to explore whether technology can help detect ambulances earlier and improve how traffic reacts to them.
+On Debian or Ubuntu, install the native prerequisites with:
 
-This is currently a research / prototype project.
+```bash
+sudo apt-get update
+sudo apt-get install -y portaudio19-dev sumo sumo-tools
+```
 
----
+Then create the project environment:
 
-# What the project does
+```bash
+git clone https://github.com/ishandandekar/amroute.git
+cd amroute
+uv sync
+uv run python scripts/check_setup.py --mode detection
+```
 
-The main focus right now is **ambulance siren detection** from a live audio stream.
+The setup check intentionally exits with a non-zero status until all required model
+files are present.
 
-The system listens to audio from a microphone and tries to detect the presence of an ambulance siren, similar to how voice assistants detect hotwords.
+## Model files
 
-Possible future directions include:
+Model weights and training datasets are not committed to Git. Before running the
+detector, provide:
 
-- Integration with traffic signals
-- Vehicle-to-vehicle communication
-- Real-time routing for ambulances
-- Smart city infrastructure integration
+| Component | Default location |
+| --- | --- |
+| YOLO ambulance detector | `brite/best_YOLO_ambulance_detect.pt` |
+| sireNN audio classifier | `sirenn/sireNN.pt` |
 
----
+You can also keep weights elsewhere and pass `--model` and `--audio-model`. Only use
+weights whose source and license you have verified.
 
-# How it works (high level)
+To train sireNN, place WAV files in the class directories documented in
+`sirenn/train_pytorch.py`, then run from that directory:
 
-1. A microphone captures live audio.
-2. The audio stream is processed continuously.
-3. A detection model looks for patterns typical of ambulance sirens.
-4. When detected, the system triggers an event.
+```bash
+cd sirenn
+uv sync
+uv run python train_pytorch.py --model-path sireNN.pt
+```
 
-The goal is to keep the system lightweight enough to run locally.
+The repository does not yet include a reproducible training pipeline or distributable
+weights for the YOLO model. That is a known project limitation, not an automatic
+download performed by the code.
 
----
+## Run detection
 
-# Current status
+Fused audio and vision detection:
 
-This is an early stage prototype. The current focus areas are:
+```bash
+uv run python detection.py
+```
 
-- Real-time audio stream processing
-- Ambulance siren classification
-- Low latency detection
+Run only one sensor while developing or diagnosing hardware:
 
----
+```bash
+uv run python detection.py --audio-only
+uv run python detection.py --vision-only --source path/to/video.mp4
+```
 
-# Project goals
+Useful options:
 
-- Detect ambulance sirens reliably in noisy city environments
-- Keep the system simple enough to run on edge devices
-- Provide a foundation for future smart traffic systems
+```bash
+uv run python detection.py --list-devices
+uv run python detection.py --help
+```
 
----
+Press `q` in the video window or `Ctrl+C` in the terminal to stop. Missing model
+files are reported before camera or microphone access begins.
 
-# Disclaimer
+## Run the SUMO study
 
----
+The complete experiment design and interpretation live in [`sim/SPEC.md`](sim/SPEC.md).
+The committed `corridor.osm` is the source network; generated SUMO networks, routes,
+and result CSVs are intentionally ignored.
 
-# Contributing
+On Linux, first build the network and scenarios:
 
-If you find the idea interesting or want to experiment with siren detection or smart traffic systems, feel free to open an issue or contribute.
+```bash
+netconvert \
+  --osm-files sim/corridor/corridor.osm \
+  --output-file sim/corridor/corridor.net.xml
+
+export SUMO_TOOLS=/usr/share/sumo/tools
+uv run python sim/scenario.py --all --seed 1
+uv run python scripts/check_setup.py --mode simulation
+```
+
+Run one baseline/preemption pair:
+
+```bash
+uv run python sim/run.py baseline --density low --seed 1
+uv run python sim/run.py preempt --density low --seed 1 --r 200
+```
+
+Run the full 150-cell experiment and regenerate the analysis:
+
+```bash
+uv run python sim/run.py batch --resume
+uv run python sim/analysis/analyze.py
+```
+
+Use `--gui` on a baseline or preemption command to watch the ambulance in SUMO.
+
+## Development
+
+The lightweight checks do not download ML dependencies or model weights:
+
+```bash
+python -m compileall -q .
+python -m unittest discover -s tests -v
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
+
+## Current limitations
+
+- Model weights are not distributed, and the visual training process is not yet
+  reproducible from this repository.
+- The simulation workflow is Linux-oriented.
+- Simulation output is generated locally; the written report should not be treated as
+  independently reproduced without rerunning the matrix.
+- Audio/vision accuracy has not been benchmarked against a published held-out dataset.
+- The project does not currently include a license. The maintainer must choose one
+  before outside contributors can safely reuse or redistribute the code.
+
+## Contributing
+
+Bug reports and focused improvements are welcome. Good first areas are reproducible
+model training, detector benchmarks, tests around simulation control, and documentation.
+Please coordinate large or safety-relevant changes in an issue first.
